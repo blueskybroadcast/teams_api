@@ -1,0 +1,110 @@
+name: Version Bump PR
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'lib/teams_api/version.rb'
+
+jobs:
+  create-version-pr:
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[skip-version]')"
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.VERSION_PAT }}
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.0'
+          bundler-cache: true
+
+      - name: Configure Git
+        run: |
+          git config user.name "Manuel Crosthwaite"
+          git config user.email "mcrosthwaite@blueskyelearn.com"
+
+      - name: Determine Version Bump Type
+        id: bump-type
+        run: |
+          if [[ "${{ github.event.head_commit.message }}" =~ \[major\] ]]; then
+            echo "BUMP_TYPE=major" >> $GITHUB_ENV
+          elif [[ "${{ github.event.head_commit.message }}" =~ \[minor\] ]]; then
+            echo "BUMP_TYPE=minor" >> $GITHUB_ENV
+          else
+            echo "BUMP_TYPE=patch" >> $GITHUB_ENV
+          fi
+
+      - name: Create Version Branch
+        run: |
+          # Get current version
+          current_version=$(grep -o '".*"' lib/teams_api/version.rb | sed 's/"//g')
+          echo "Current version: $current_version"
+          
+          # Parse version components
+          IFS='.' read -r major minor patch <<< "$current_version"
+          
+          # Increment version based on bump type
+          if [[ "$BUMP_TYPE" == "major" ]]; then
+            major=$((major + 1))
+            minor=0
+            patch=0
+          elif [[ "$BUMP_TYPE" == "minor" ]]; then
+            minor=$((minor + 1))
+            patch=0
+          else
+            patch=$((patch + 1))
+          fi
+          
+          new_version="$major.$minor.$patch"
+          echo "New version: $new_version"
+          echo "NEW_VERSION=$new_version" >> $GITHUB_ENV
+          
+          # Create branch
+          branch_name="version-bump-$new_version"
+          git checkout -b "$branch_name"
+          
+          # Update version file
+          sed -i "s/VERSION = \"$current_version\"/VERSION = \"$new_version\"/" lib/teams_api/version.rb
+          
+          # Commit changes
+          git add lib/teams_api/version.rb
+          git commit -m "Bump version to $new_version [skip-version]"
+          git push origin "$branch_name"
+          
+          echo "BRANCH_NAME=$branch_name" >> $GITHUB_ENV
+
+      - name: Create Pull Request
+        id: create-pr
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.VERSION_PAT }}
+          commit-message: "Bump version to ${{ env.NEW_VERSION }} [skip-version]"
+          title: "Bump version to ${{ env.NEW_VERSION }}"
+          body: |
+            Automated version bump from ${{ github.workflow }}
+            
+            Version bump type: ${{ env.BUMP_TYPE }}
+            New version: ${{ env.NEW_VERSION }}
+            
+            This PR will be automatically merged when approved.
+          branch: ${{ env.BRANCH_NAME }}
+          base: main
+          labels: |
+            automated
+            version
+          draft: false
+
+      - name: Enable Auto-Merge
+        run: |
+          PR_NUMBER="${{ steps.create-pr.outputs.pull-request-number }}"
+          if [[ ! -z "$PR_NUMBER" ]]; then
+            # Enable auto-merge (requires GitHub CLI)
+            gh pr merge "$PR_NUMBER" --auto --squash
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.VERSION_PAT }}

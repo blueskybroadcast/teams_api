@@ -1,0 +1,40 @@
+name: Create Release
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - main
+    paths:
+      - 'lib/teams_api/version.rb'
+
+jobs:
+  tag-and-release:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.merged == true && contains(github.event.pull_request.title, 'Bump version to')
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.VERSION_PAT }}
+
+      - name: Get Version
+        id: get-version
+        run: |
+          version=$(grep -o '".*"' lib/teams_api/version.rb | sed 's/"//g')
+          echo "VERSION=$version" >> $GITHUB_ENV
+          echo "Detected version: $version"
+
+      - name: Create Tag
+        run: |
+          git config user.name "Manuel Crosthwaite"
+          git config user.email "mcrosthwaite@blueskyelearn.com"
+          git tag -a "v${{ env.VERSION }}" -m "Release v${{ env.VERSION }}"
+          git push origin "v${{ env.VERSION }}"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ env.VERSION }}
+          name: Release v${{ env.VERSION }}
+          generate_release_notes: true
