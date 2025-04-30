@@ -1,14 +1,20 @@
 source 'https://rubygems.org'
 git_source(:github) { |repo| "https://github.com/#{repo}.git" }
 
-# Specify your gem's dependencies in teams_api.gemspec.
 gemspec
 
-group :development do
-  gem 'sqlite3'
-end
+gem 'activesupport'
+gem 'jwt_sessions'
+gem 'pg'
 
 group :development, :test do
+  gem 'database_cleaner'
+  gem 'factory_bot_rails'
+  gem 'pry-byebug'
+  gem 'rails-controller-testing'
+  gem 'rspec-rails'
+  gem 'shoulda-matchers'
+
   gem 'rubocop', require: false
   gem 'rubocop-junit-formatter', require: false
   gem 'rubocop-performance', require: false

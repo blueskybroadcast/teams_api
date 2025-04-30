@@ -4,16 +4,14 @@ module TeamsApi
   module Api
     module V1
       class BaseController < ActionController::API
+        include TeamsApi::Concerns::JwtAware
+
         before_action :authenticate_request
 
         private
 
         def authenticate_request
-
-          token = request.headers['Authorization']&.split(' ')&.last
-          @current_user = ::User.find_by_auth_token(token)
-
-          unless @current_user
+          unless current_user
             render json: { error: 'Unauthorized' }, status: :unauthorized
           end
         end
