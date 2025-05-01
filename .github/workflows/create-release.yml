@@ -5,6 +5,7 @@ on:
     types: [closed]
     branches:
       - main
+      - PAT-256--Teams-API-Initiative-Versioning-of-Teams-API-GEM      
     paths:
       - 'lib/teams_api/version.rb'
 
@@ -17,11 +18,17 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.VERSION_PAT }}
+          ref: main  # Always checkout main branch after PR merge
 
       - name: Get Version
         id: get-version
         run: |
-          version=$(grep -o '".*"' lib/teams_api/version.rb | sed 's/"//g')
+          version=$(grep -o "VERSION\s*=\s*[\"'].*[\"']" lib/teams_api/version.rb | grep -o "[0-9]\+\.[0-9]\+\.[0-9]\+")
+          if [ -z "$version" ]; then
+            echo "Error: Could not extract version number"
+            cat lib/teams_api/version.rb
+            exit 1
+          fi
           echo "VERSION=$version" >> $GITHUB_ENV
           echo "Detected version: $version"
 

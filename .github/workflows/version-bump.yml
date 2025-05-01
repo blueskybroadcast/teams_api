@@ -70,8 +70,9 @@ jobs:
           echo "New version: $new_version"
           echo "NEW_VERSION=$new_version" >> $GITHUB_ENV
           
-          # Create branch
-          branch_name="version-bump-$new_version"
+          # Create branch with unique name to avoid conflicts
+          timestamp=$(date +%s)
+          branch_name="version-bump-$new_version-$timestamp"
           git checkout -b "$branch_name"
           
           # Update version file - with better error handling
@@ -120,8 +121,9 @@ jobs:
 
       - name: Enable Auto-Merge
         run: |
-          PR_NUMBER="${{ steps.create-pr.outputs.pull-request-number }}"
-          if [[ ! -z "$PR_NUMBER" ]]; then
+          PR_URL="${{ steps.create-pr.outputs.pull-request-url }}"
+          if [[ ! -z "$PR_URL" ]]; then
+            PR_NUMBER=$(echo $PR_URL | awk -F/ '{print $NF}')
             # Enable auto-merge (requires GitHub CLI)
             gh pr merge "$PR_NUMBER" --auto --squash
           fi
