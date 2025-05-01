@@ -42,8 +42,13 @@ jobs:
 
       - name: Create Version Branch
         run: |
-          # Get current version
-          current_version=$(grep -o '".*"' lib/teams_api/version.rb | sed 's/"//g')
+          # Get current version - more robust pattern matching
+          current_version=$(grep -o "VERSION\s*=\s*[\"'].*[\"']" lib/teams_api/version.rb | grep -o "[0-9]\+\.[0-9]\+\.[0-9]\+")
+          if [ -z "$current_version" ]; then
+            echo "Error: Could not extract version number"
+            cat lib/teams_api/version.rb
+            exit 1
+          fi
           echo "Current version: $current_version"
           
           # Parse version components
@@ -109,3 +114,4 @@ jobs:
           fi
         env:
           GH_TOKEN: ${{ secrets.VERSION_PAT }}
+          
