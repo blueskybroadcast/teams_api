@@ -3,9 +3,6 @@ name: Create Release
 on:
   pull_request:
     types: [closed]
-    branches:
-      - main
-      - PAT-256--Teams-API-Initiative-Versioning-of-Teams-API-GEM      
     paths:
       - 'lib/teams_api/version.rb'
 
@@ -18,7 +15,7 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.VERSION_PAT }}
-          ref: main  # Always checkout main branch after PR merge
+          ref: ${{ github.event.pull_request.base.ref }}  # Check out the branch that received the merge
 
       - name: Get Version
         id: get-version
@@ -31,6 +28,19 @@ jobs:
           fi
           echo "VERSION=$version" >> $GITHUB_ENV
           echo "Detected version: $version"
+
+      - name: Get Branch Name
+        run: |
+          BRANCH_NAME="${{ github.event.pull_request.base.ref }}"
+          echo "Target branch was: $BRANCH_NAME"
+          
+          # Only create release on main or master branch
+          # Comment out the following if condition during testing
+          # if [[ "$BRANCH_NAME" != "main" && "$BRANCH_NAME" != "master" ]]; then
+          #   echo "Skipping release creation for branch $BRANCH_NAME"
+          #   echo "Releases are only created for main and master branches"
+          #   exit 0
+          # fi
 
       - name: Create Tag
         run: |
@@ -45,3 +55,4 @@ jobs:
           tag_name: v${{ env.VERSION }}
           name: Release v${{ env.VERSION }}
           generate_release_notes: true
+          

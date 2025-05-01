@@ -1,10 +1,13 @@
 name: Version Bump PR
 
+# TESTING CONFIGURATION
+# For testing, include your feature branch in the trigger
+# Once testing is complete, remove your feature branch from this list
 on:
   push:
     branches:
       - main
-      - PAT-256--Teams-API-Initiative-Versioning-of-Teams-API-GEM
+      - PAT-256--Teams-API-Initiative-Versioning-of-Teams-API-GEM  # REMOVE this line after testing
     paths-ignore:
       - 'lib/teams_api/version.rb'
 
@@ -39,6 +42,16 @@ jobs:
           else
             echo "BUMP_TYPE=patch" >> $GITHUB_ENV
           fi
+
+      # TESTING CONFIGURATION
+      # For testing purposes, we'll set the target branch explicitly
+      # In production, this will always be 'main'
+      - name: Set Target Branch
+        run: |
+          # For testing, we need to detect which branch triggered the workflow
+          TRIGGER_BRANCH="${GITHUB_REF#refs/heads/}"
+          echo "Target branch: $TRIGGER_BRANCH"
+          echo "TARGET_BRANCH=$TRIGGER_BRANCH" >> $GITHUB_ENV
 
       - name: Process Version Change
         run: |
@@ -142,7 +155,7 @@ jobs:
             
             This PR will be automatically merged when approved.
           branch: ${{ env.BRANCH_NAME }}
-          base: main
+          base: ${{ env.TARGET_BRANCH }}  # Use the detected target branch
           labels: |
             automated
             version
