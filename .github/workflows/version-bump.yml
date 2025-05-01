@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - PAT-256--Teams-API-Initiative-Versioning-of-Teams-API-GEM
     paths-ignore:
       - 'lib/teams_api/version.rb'
 
@@ -40,63 +39,92 @@ jobs:
             echo "BUMP_TYPE=patch" >> $GITHUB_ENV
           fi
 
-      - name: Create Version Branch
+      - name: Process Version Change
         run: |
-          # Get current version - more robust pattern matching
-          current_version=$(grep -o "VERSION\s*=\s*[\"'].*[\"']" lib/teams_api/version.rb | grep -o "[0-9]\+\.[0-9]\+\.[0-9]\+")
-          if [ -z "$current_version" ]; then
-            echo "Error: Could not extract version number"
-            cat lib/teams_api/version.rb
-            exit 1
-          fi
-          echo "Current version: $current_version"
+          # Debug: Show git status
+          git status
           
-          # Parse version components
-          IFS='.' read -r major minor patch <<< "$current_version"
+          # Get current version with robust pattern matching
+          version_file="lib/teams_api/version.rb"
+          file_content=$(cat "$version_file")
+          echo "Version file content:"
+          echo "$file_content"
           
-          # Increment version based on bump type
-          if [[ "$BUMP_TYPE" == "major" ]]; then
-            major=$((major + 1))
-            minor=0
-            patch=0
-          elif [[ "$BUMP_TYPE" == "minor" ]]; then
-            minor=$((minor + 1))
-            patch=0
+          # Extract version using regex
+          if [[ $file_content =~ VERSION[[:space:]]*=[[:space:]]*[\'\"](([0-9]+)\.([0-9]+)\.([0-9]+))[\'\"] ]]; then
+            current_version="${BASH_REMATCH[1]}"
+            major="${BASH_REMATCH[2]}"
+            minor="${BASH_REMATCH[3]}"
+            patch="${BASH_REMATCH[4]}"
+            
+            echo "Current version: $current_version (Major: $major, Minor: $minor, Patch: $patch)"
+            
+            # Increment version based on bump type
+            if [[ "$BUMP_TYPE" == "major" ]]; then
+              major=$((major + 1))
+              minor=0
+              patch=0
+              echo "Bumping MAJOR version"
+            elif [[ "$BUMP_TYPE" == "minor" ]]; then
+              minor=$((minor + 1))
+              patch=0
+              echo "Bumping MINOR version"
+            else
+              patch=$((patch + 1))
+              echo "Bumping PATCH version"
+            fi
+            
+            new_version="$major.$minor.$patch"
+            echo "New version: $new_version"
+            
+            if [ "$current_version" == "$new_version" ]; then
+              echo "Error: New version is the same as current version. Nothing to update."
+              exit 1
+            fi
+            
+            echo "NEW_VERSION=$new_version" >> $GITHUB_ENV
+            
+            # Create branch with unique name
+            timestamp=$(date +%s)
+            branch_name="version-bump-$new_version-$timestamp"
+            echo "BRANCH_NAME=$branch_name" >> $GITHUB_ENV
+            
+            git checkout -b "$branch_name"
+            
+            # Replace version in file - handle both single and double quotes
+            if [[ $file_content =~ VERSION[[:space:]]*=[[:space:]]*[\'\"] ]]; then
+              quote_char="${BASH_REMATCH[0]: -1}"
+              echo "Found version with quote character: $quote_char"
+              
+              # Replace version with sed, preserving the quote style
+              sed -i "s/VERSION[[:space:]]*=[[:space:]]*$quote_char$current_version$quote_char/VERSION = $quote_char$new_version$quote_char/" "$version_file"
+              
+              # Verify change
+              new_content=$(cat "$version_file")
+              echo "Updated version file content:"
+              echo "$new_content"
+              
+              if ! grep -q "$new_version" "$version_file"; then
+                echo "ERROR: Version update failed. New version not found in file."
+                exit 1
+              fi
+              
+              # Stage and commit changes
+              git add "$version_file"
+              git diff --cached
+              
+              git commit -m "Bump version to $new_version [skip-version]"
+              git push origin "$branch_name"
+              
+              echo "Successfully created and pushed branch $branch_name with version $new_version"
+            else
+              echo "Error: Could not determine quote style for version replacement"
+              exit 1
+            fi
           else
-            patch=$((patch + 1))
-          fi
-          
-          new_version="$major.$minor.$patch"
-          echo "New version: $new_version"
-          echo "NEW_VERSION=$new_version" >> $GITHUB_ENV
-          
-          # Create branch with unique name to avoid conflicts
-          timestamp=$(date +%s)
-          branch_name="version-bump-$new_version-$timestamp"
-          git checkout -b "$branch_name"
-          
-          # Update version file - with better error handling
-          echo "Version file content before update:"
-          cat lib/teams_api/version.rb
-          
-          # Use perl instead of sed for more reliable replacement
-          perl -i -pe "s/(VERSION\s*=\s*[\"'])$current_version([\"'])/\${1}$new_version\${2}/" lib/teams_api/version.rb
-          
-          echo "Version file content after update:"
-          cat lib/teams_api/version.rb
-          
-          # Check if file was modified
-          if git diff --quiet lib/teams_api/version.rb; then
-            echo "Error: Version file was not modified. Update failed."
+            echo "Error: Could not extract version using regex"
             exit 1
           fi
-          
-          # Commit changes
-          git add lib/teams_api/version.rb
-          git commit -m "Bump version to $new_version [skip-version]"
-          git push origin "$branch_name"
-          
-          echo "BRANCH_NAME=$branch_name" >> $GITHUB_ENV
 
       - name: Create Pull Request
         id: create-pr
@@ -124,8 +152,11 @@ jobs:
           PR_URL="${{ steps.create-pr.outputs.pull-request-url }}"
           if [[ ! -z "$PR_URL" ]]; then
             PR_NUMBER=$(echo $PR_URL | awk -F/ '{print $NF}')
+            echo "Created PR #$PR_NUMBER"
             # Enable auto-merge (requires GitHub CLI)
             gh pr merge "$PR_NUMBER" --auto --squash
+          else
+            echo "No PR was created, possibly because there were no changes"
           fi
         env:
           GH_TOKEN: ${{ secrets.VERSION_PAT }}
