@@ -1,8 +1,5 @@
 name: Version Bump PR
 
-# TESTING CONFIGURATION
-# For testing, include your feature branch in the trigger
-# Once testing is complete, remove your feature branch from this list
 on:
   push:
     branches:
@@ -43,15 +40,12 @@ jobs:
             echo "BUMP_TYPE=patch" >> $GITHUB_ENV
           fi
 
-      # TESTING CONFIGURATION
-      # For testing purposes, we'll set the target branch explicitly
-      # In production, this will always be 'main'
+      # Get the current branch
       - name: Set Target Branch
         run: |
-          # For testing, we need to detect which branch triggered the workflow
-          TRIGGER_BRANCH="${GITHUB_REF#refs/heads/}"
-          echo "Target branch: $TRIGGER_BRANCH"
-          echo "TARGET_BRANCH=$TRIGGER_BRANCH" >> $GITHUB_ENV
+          CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+          echo "Target branch: $CURRENT_BRANCH"
+          echo "CURRENT_BRANCH=$CURRENT_BRANCH" >> $GITHUB_ENV
 
       - name: Process Version Change
         run: |
@@ -140,37 +134,34 @@ jobs:
             exit 1
           fi
 
-      - name: Create Pull Request
-        id: create-pr
-        uses: peter-evans/create-pull-request@v5
-        with:
-          token: ${{ secrets.VERSION_PAT }}
-          commit-message: "Bump version to ${{ env.NEW_VERSION }} [skip-version]"
-          title: "Bump version to ${{ env.NEW_VERSION }}"
-          body: |
-            Automated version bump from ${{ github.workflow }}
-            
-            Version bump type: ${{ env.BUMP_TYPE }}
-            New version: ${{ env.NEW_VERSION }}
-            
-            This PR will be automatically merged when approved.
-          branch: ${{ env.BRANCH_NAME }}
-          base: ${{ env.TARGET_BRANCH }}  # Use the detected target branch
-          labels: |
-            automated
-            version
-          draft: false
-
-      - name: Enable Auto-Merge
+      # Create PR using GitHub CLI instead of the peter-evans action
+      - name: Create Pull Request with GitHub CLI
         run: |
-          PR_URL="${{ steps.create-pr.outputs.pull-request-url }}"
+          # Install GitHub CLI
+          type -p curl >/dev/null || (apt-get update && apt-get install -y curl)
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+          chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+          apt-get update && apt-get install -y gh
+          
+          # Create PR
+          PR_URL=$(gh pr create --title "Bump version to ${{ env.NEW_VERSION }}" \
+            --body "Automated version bump from ${{ github.workflow }}\n\nVersion bump type: ${{ env.BUMP_TYPE }}\nNew version: ${{ env.NEW_VERSION }}\n\nThis PR will be automatically merged when approved." \
+            --base "${{ env.CURRENT_BRANCH }}" \
+            --head "${{ env.BRANCH_NAME }}" \
+            --label "automated,version")
+          
           if [[ ! -z "$PR_URL" ]]; then
+            echo "Created PR: $PR_URL"
             PR_NUMBER=$(echo $PR_URL | awk -F/ '{print $NF}')
-            echo "Created PR #$PR_NUMBER"
-            # Enable auto-merge (requires GitHub CLI)
+            echo "PR number: $PR_NUMBER"
+            
+            # Enable auto-merge
             gh pr merge "$PR_NUMBER" --auto --squash
+            echo "Enabled auto-merge for PR #$PR_NUMBER"
           else
-            echo "No PR was created, possibly because there were no changes"
+            echo "Failed to create PR"
+            exit 1
           fi
         env:
           GH_TOKEN: ${{ secrets.VERSION_PAT }}

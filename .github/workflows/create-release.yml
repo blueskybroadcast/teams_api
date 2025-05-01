@@ -29,25 +29,19 @@ jobs:
           echo "VERSION=$version" >> $GITHUB_ENV
           echo "Detected version: $version"
 
-      - name: Get Branch Name
-        run: |
-          BRANCH_NAME="${{ github.event.pull_request.base.ref }}"
-          echo "Target branch was: $BRANCH_NAME"
-          
-          # Only create release on main or master branch
-          # Comment out the following if condition during testing
-          # if [[ "$BRANCH_NAME" != "main" && "$BRANCH_NAME" != "master" ]]; then
-          #   echo "Skipping release creation for branch $BRANCH_NAME"
-          #   echo "Releases are only created for main and master branches"
-          #   exit 0
-          # fi
-
       - name: Create Tag
         run: |
           git config user.name "Manuel Crosthwaite"
           git config user.email "mcrosthwaite@blueskyelearn.com"
-          git tag -a "v${{ env.VERSION }}" -m "Release v${{ env.VERSION }}"
-          git push origin "v${{ env.VERSION }}"
+          
+          # Check if tag already exists
+          if git rev-parse "v${{ env.VERSION }}" >/dev/null 2>&1; then
+            echo "Tag v${{ env.VERSION }} already exists. Skipping tag creation."
+          else
+            git tag -a "v${{ env.VERSION }}" -m "Release v${{ env.VERSION }}"
+            git push origin "v${{ env.VERSION }}"
+            echo "Created and pushed tag v${{ env.VERSION }}"
+          fi
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
