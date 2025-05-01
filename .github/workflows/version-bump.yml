@@ -74,8 +74,21 @@ jobs:
           branch_name="version-bump-$new_version"
           git checkout -b "$branch_name"
           
-          # Update version file
-          sed -i "s/VERSION = \"$current_version\"/VERSION = \"$new_version\"/" lib/teams_api/version.rb
+          # Update version file - with better error handling
+          echo "Version file content before update:"
+          cat lib/teams_api/version.rb
+          
+          # Use perl instead of sed for more reliable replacement
+          perl -i -pe "s/(VERSION\s*=\s*[\"'])$current_version([\"'])/\${1}$new_version\${2}/" lib/teams_api/version.rb
+          
+          echo "Version file content after update:"
+          cat lib/teams_api/version.rb
+          
+          # Check if file was modified
+          if git diff --quiet lib/teams_api/version.rb; then
+            echo "Error: Version file was not modified. Update failed."
+            exit 1
+          fi
           
           # Commit changes
           git add lib/teams_api/version.rb
