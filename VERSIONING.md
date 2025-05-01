@@ -1,4 +1,4 @@
-# Teams API Automated Versioning
+# Teams API Automated Versioning Management
 
 This document describes the automated versioning system implemented for the Teams API engine.
 
