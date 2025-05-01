@@ -134,7 +134,7 @@ jobs:
             exit 1
           fi
 
-      # Create PR using curl and GitHub API
+      # Create PR using curl and GitHub API with Auto-Merge enabled
       - name: Create Pull Request with GitHub API
         run: |
           # Get repository info
@@ -173,11 +173,46 @@ jobs:
             
             echo "Added labels to PR #$PR_NUMBER"
             
-            # Note: GitHub API doesn't support enabling auto-merge directly
-            # This would need to be done manually or through another method
+            # Enable auto-merge using GitHub API
+            # First, try the v3 API with the merge_method parameter
+            AUTOMERGE_RESPONSE=$(curl -s -X PUT \
+              -H "Authorization: token ${{ secrets.VERSION_PAT }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/pulls/$PR_NUMBER/merge" \
+              -d '{"merge_method":"squash"}')
+            
+            if [[ "$AUTOMERGE_RESPONSE" == *"Pull Request is not mergeable"* || "$AUTOMERGE_RESPONSE" == *"Required status check"* ]]; then
+              echo "PR not immediately mergeable. Setting auto-merge..."
+              
+              # First get the PR node ID for GraphQL
+              PR_DETAILS=$(curl -s -X GET \
+                -H "Authorization: token ${{ secrets.VERSION_PAT }}" \
+                -H "Accept: application/vnd.github.v3+json" \
+                "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/pulls/$PR_NUMBER")
+              
+              # Try the GitHub API v4 (GraphQL)
+              # The proper endpoint for auto-merge in API v4
+              AUTO_MERGE_RESPONSE=$(curl -s -X PATCH \
+                -H "Authorization: token ${{ secrets.VERSION_PAT }}" \
+                -H "Accept: application/vnd.github.v3+json" \
+                "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/pulls/$PR_NUMBER" \
+                -d '{"auto_merge": true, "merge_method": "squash"}')
+              
+              echo "Auto-merge response: $AUTO_MERGE_RESPONSE"
+              
+              if [[ "$AUTO_MERGE_RESPONSE" == *"auto_merge"* ]]; then
+                echo "Auto-merge enabled successfully"
+              else
+                echo "Failed to enable auto-merge - this might be a repository setting issue"
+                echo "Please verify 'Allow auto-merge' is enabled in repository settings"
+              fi
+              
+              echo "Auto-merge enabled response: $GRAPHQL_RESPONSE"
+            else
+              echo "PR merged immediately: $AUTOMERGE_RESPONSE"
+            fi
             
             echo "PR #$PR_NUMBER created successfully: $PR_URL"
-            echo "Note: Auto-merge will need to be enabled manually"
           else
             echo "Failed to create PR. API Response:"
             echo "$PR_RESPONSE"
