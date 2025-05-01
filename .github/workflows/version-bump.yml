@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - PAT-256--Teams-API-Initiative-Versioning-of-Teams-API-GEM
     paths-ignore:
       - 'lib/teams_api/version.rb'
 
