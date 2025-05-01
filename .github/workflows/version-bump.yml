@@ -134,35 +134,52 @@ jobs:
             exit 1
           fi
 
-      # Create PR using GitHub CLI instead of the peter-evans action
-      - name: Create Pull Request with GitHub CLI
+      # Create PR using curl and GitHub API
+      - name: Create Pull Request with GitHub API
         run: |
-          # Install GitHub CLI
-          type -p curl >/dev/null || (apt-get update && apt-get install -y curl)
-          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-          chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
-          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-          apt-get update && apt-get install -y gh
+          # Get repository info
+          REPO_OWNER=$(echo "$GITHUB_REPOSITORY" | cut -d '/' -f 1)
+          REPO_NAME=$(echo "$GITHUB_REPOSITORY" | cut -d '/' -f 2)
           
-          # Create PR
-          PR_URL=$(gh pr create --title "Bump version to ${{ env.NEW_VERSION }}" \
-            --body "Automated version bump from ${{ github.workflow }}\n\nVersion bump type: ${{ env.BUMP_TYPE }}\nNew version: ${{ env.NEW_VERSION }}\n\nThis PR will be automatically merged when approved." \
-            --base "${{ env.CURRENT_BRANCH }}" \
-            --head "${{ env.BRANCH_NAME }}" \
-            --label "automated,version")
+          # Create PR using GitHub API
+          PR_RESPONSE=$(curl -s -X POST \
+            -H "Authorization: token ${{ secrets.VERSION_PAT }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/pulls" \
+            -d @- << EOF
+          {
+            "title": "Bump version to ${{ env.NEW_VERSION }}",
+            "body": "Automated version bump from ${{ github.workflow }}\n\nVersion bump type: ${{ env.BUMP_TYPE }}\nNew version: ${{ env.NEW_VERSION }}\n\nThis PR will be automatically merged when approved.",
+            "head": "${{ env.BRANCH_NAME }}",
+            "base": "${{ env.CURRENT_BRANCH }}",
+            "maintainer_can_modify": true
+          }
+          EOF
+          )
           
-          if [[ ! -z "$PR_URL" ]]; then
-            echo "Created PR: $PR_URL"
-            PR_NUMBER=$(echo $PR_URL | awk -F/ '{print $NF}')
-            echo "PR number: $PR_NUMBER"
+          # Extract PR number from response
+          PR_NUMBER=$(echo "$PR_RESPONSE" | grep -o '"number": [0-9]*' | grep -o '[0-9]*' | head -1)
+          PR_URL=$(echo "$PR_RESPONSE" | grep -o '"html_url": "[^"]*"' | grep -o 'https://[^"]*' | head -1)
+          
+          if [[ ! -z "$PR_NUMBER" ]]; then
+            echo "Created PR #$PR_NUMBER: $PR_URL"
             
-            # Enable auto-merge
-            gh pr merge "$PR_NUMBER" --auto --squash
-            echo "Enabled auto-merge for PR #$PR_NUMBER"
+            # Add labels to the PR
+            curl -s -X POST \
+              -H "Authorization: token ${{ secrets.VERSION_PAT }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/issues/$PR_NUMBER/labels" \
+              -d '{"labels":["automated","version"]}'
+            
+            echo "Added labels to PR #$PR_NUMBER"
+            
+            # Note: GitHub API doesn't support enabling auto-merge directly
+            # This would need to be done manually or through another method
+            
+            echo "PR #$PR_NUMBER created successfully: $PR_URL"
+            echo "Note: Auto-merge will need to be enabled manually"
           else
-            echo "Failed to create PR"
+            echo "Failed to create PR. API Response:"
+            echo "$PR_RESPONSE"
             exit 1
           fi
-        env:
-          GH_TOKEN: ${{ secrets.VERSION_PAT }}
-          
