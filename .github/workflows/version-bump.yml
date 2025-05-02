@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - PAT-256--Teams-API-Initiative-Versioning-of-Teams-API-GEM  # REMOVE this line after testing
     paths-ignore:
       - 'lib/teams_api/version.rb'
 
@@ -46,7 +45,6 @@ jobs:
             echo "BUMP_TYPE=patch" >> $GITHUB_ENV
           fi
 
-      # Get the current branch
       - name: Set Target Branch
         run: |
           CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
