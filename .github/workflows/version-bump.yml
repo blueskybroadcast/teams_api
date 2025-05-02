@@ -22,7 +22,13 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.0'
-          bundler-cache: true
+          bundler-cache: false
+
+      - name: Install dependencies
+        run: |
+          # Install dependencies in non-deployment mode
+          bundle config set --local deployment false
+          bundle install
 
       - name: Configure Git
         run: |
@@ -206,8 +212,6 @@ jobs:
                 echo "Failed to enable auto-merge - this might be a repository setting issue"
                 echo "Please verify 'Allow auto-merge' is enabled in repository settings"
               fi
-              
-              echo "Auto-merge enabled response: $GRAPHQL_RESPONSE"
             else
               echo "PR merged immediately: $AUTOMERGE_RESPONSE"
             fi
