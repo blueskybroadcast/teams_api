@@ -1,0 +1,51 @@
+name: Create Release
+
+on:
+  pull_request:
+    types: [closed]
+    paths:
+      - 'lib/teams_api/version.rb'
+
+jobs:
+  tag-and-release:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.merged == true && contains(github.event.pull_request.title, 'Bump version to')
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.VERSION_PAT }}
+          ref: ${{ github.event.pull_request.base.ref }}  # Check out the branch that received the merge
+
+      - name: Get Version
+        id: get-version
+        run: |
+          version=$(grep -o "VERSION\s*=\s*[\"'].*[\"']" lib/teams_api/version.rb | grep -o "[0-9]\+\.[0-9]\+\.[0-9]\+")
+          if [ -z "$version" ]; then
+            echo "Error: Could not extract version number"
+            cat lib/teams_api/version.rb
+            exit 1
+          fi
+          echo "VERSION=$version" >> $GITHUB_ENV
+          echo "Detected version: $version"
+
+      - name: Create Tag
+        run: |
+          git config user.name "Manuel Crosthwaite"
+          git config user.email "mcrosthwaite@blueskyelearn.com"
+          
+          # Check if tag already exists
+          if git rev-parse "v${{ env.VERSION }}" >/dev/null 2>&1; then
+            echo "Tag v${{ env.VERSION }} already exists. Skipping tag creation."
+          else
+            git tag -a "v${{ env.VERSION }}" -m "Release v${{ env.VERSION }}"
+            git push origin "v${{ env.VERSION }}"
+            echo "Created and pushed tag v${{ env.VERSION }}"
+          fi
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ env.VERSION }}
+          name: Release v${{ env.VERSION }}
+          generate_release_notes: true
