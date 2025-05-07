@@ -1,4 +1,5 @@
-# app/models/teams_api/services/team_service.rb
+# frozen_string_literal: true
+
 module TeamsApi
   module Services
     class TeamService

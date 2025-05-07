@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-# app/serializers/teams_api/team_serializer.rb
 module TeamsApi
   class TeamSerializer < ActiveModel::Serializer
     attributes :id, :name, :descriptor, :max_members, :expires_at,
