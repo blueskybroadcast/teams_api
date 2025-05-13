@@ -2,10 +2,10 @@ name: Security Scan
 
 on:
   push:
-    branches: [ main, PAT-313-Setup-Security-Scanning-With-Snyk-for-Teams-API ] #remove PAT-313-Setup-Security-Scanning-With-Snyk-for-Teams-API after testing
+    branches: [ main ]
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-    branches: [ main, PAT-313-Setup-Security-Scanning-With-Snyk-for-Teams-API ] #remove PAT-313-Setup-Security-Scanning-With-Snyk-for-Teams-API after testing
+    branches: [ main ]
   schedule:
     - cron: '0 7 * * 1'
 
