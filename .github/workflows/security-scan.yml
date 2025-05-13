@@ -8,6 +8,16 @@ on:
   schedule:
     - cron: '0 7 * * 1'
 
+name: Security Scan
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+  schedule:
+    - cron: '0 7 * * 1'  # Run every Monday at 7:00 UTC
+
 jobs:
   snyk-scan:
     runs-on: ubuntu-latest
@@ -18,7 +28,15 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.0.7'
-          bundler-cache: true
+          # Don't use bundler-cache to avoid deployment mode issues
+          bundler-cache: false
+      
+      - name: Configure Bundler
+        run: |
+          gem install bundler
+          bundle config unset deployment
+          bundle config set --local path vendor/bundle
+          bundle install --jobs 4 --retry 3
       
       - name: Set up Node.js
         uses: actions/setup-node@v2
@@ -28,65 +46,69 @@ jobs:
       - name: Install Snyk CLI
         run: npm install -g snyk
           
-      - name: Run Snyk to check for vulnerabilities
+      - name: Run Snyk to check Ruby dependencies
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         run: |
-          # Save output to a file and to a variable for summary generation
-          snyk test --json > snyk-results.json || true
+          # Run snyk directly against the Gemfile
+          snyk test --file=Gemfile --json > snyk-results.json || true
           
       - name: Generate vulnerability summary
         id: summary
         run: |
-          # Make sure jq is installed
-          sudo apt-get update -y && sudo apt-get install -y jq
-          
           # Parse the Snyk results and generate a summary
           echo "Generating vulnerability summary..."
           
-          # Count vulnerabilities by severity
-          HIGH_COUNT=$(grep -o '"severity":"high"' snyk-results.json | wc -l)
-          MEDIUM_COUNT=$(grep -o '"severity":"medium"' snyk-results.json | wc -l)
-          LOW_COUNT=$(grep -o '"severity":"low"' snyk-results.json | wc -l)
-          
-          # Create a summary
-          echo "SUMMARY<<EOF" >> $GITHUB_ENV
-          echo "## 🔒 Snyk Security Scan Results" >> $GITHUB_ENV
-          echo "" >> $GITHUB_ENV
-          echo "| Severity | Count |" >> $GITHUB_ENV
-          echo "|----------|-------|" >> $GITHUB_ENV
-          echo "| 🔴 High | $HIGH_COUNT |" >> $GITHUB_ENV
-          echo "| 🟠 Medium | $MEDIUM_COUNT |" >> $GITHUB_ENV
-          echo "| 🟡 Low | $LOW_COUNT |" >> $GITHUB_ENV
-          echo "" >> $GITHUB_ENV
-          
-          # Get high and medium vulnerabilities details (up to 10 of each)
-          if [ $HIGH_COUNT -gt 0 ] || [ $MEDIUM_COUNT -gt 0 ]; then
-            echo "### Critical Vulnerabilities:" >> $GITHUB_ENV
+          if [ -s snyk-results.json ]; then
+            # Count vulnerabilities by severity
+            HIGH_COUNT=$(grep -o '"severity":"high"' snyk-results.json | wc -l)
+            MEDIUM_COUNT=$(grep -o '"severity":"medium"' snyk-results.json | wc -l)
+            LOW_COUNT=$(grep -o '"severity":"low"' snyk-results.json | wc -l)
+            
+            # Create a summary
+            echo "SUMMARY<<EOF" >> $GITHUB_ENV
+            echo "## 🔒 Snyk Security Scan Results" >> $GITHUB_ENV
+            echo "" >> $GITHUB_ENV
+            echo "| Severity | Count |" >> $GITHUB_ENV
+            echo "|----------|-------|" >> $GITHUB_ENV
+            echo "| 🔴 High | $HIGH_COUNT |" >> $GITHUB_ENV
+            echo "| 🟠 Medium | $MEDIUM_COUNT |" >> $GITHUB_ENV
+            echo "| 🟡 Low | $LOW_COUNT |" >> $GITHUB_ENV
             echo "" >> $GITHUB_ENV
             
-            # Process high vulnerabilities
-            if [ $HIGH_COUNT -gt 0 ]; then
-              echo "#### 🔴 High Impact" >> $GITHUB_ENV
-              jq -r '.vulnerabilities[] | select(.severity == "high") | "- **\(.packageName)**: \(.title)"' snyk-results.json | head -10 >> $GITHUB_ENV
-              if [ $HIGH_COUNT -gt 10 ]; then
-                echo "- ... and $(($HIGH_COUNT - 10)) more high vulnerabilities" >> $GITHUB_ENV
-              fi
+            # Get high and medium vulnerabilities details (up to 10 of each)
+            if [ $HIGH_COUNT -gt 0 ] || [ $MEDIUM_COUNT -gt 0 ]; then
+              echo "### Critical Vulnerabilities:" >> $GITHUB_ENV
               echo "" >> $GITHUB_ENV
-            fi
-            
-            # Process medium vulnerabilities
-            if [ $MEDIUM_COUNT -gt 0 ]; then
-              echo "#### 🟠 Medium Impact" >> $GITHUB_ENV
-              jq -r '.vulnerabilities[] | select(.severity == "medium") | "- **\(.packageName)**: \(.title)"' snyk-results.json | head -10 >> $GITHUB_ENV
-              if [ $MEDIUM_COUNT -gt 10 ]; then
-                echo "- ... and $(($MEDIUM_COUNT - 10)) more medium vulnerabilities" >> $GITHUB_ENV
+              
+              # Process high vulnerabilities
+              if [ $HIGH_COUNT -gt 0 ]; then
+                echo "#### 🔴 High Impact" >> $GITHUB_ENV
+                grep -o '"packageName":"[^"]*".*"severity":"high".*"title":"[^"]*"' snyk-results.json | sed 's/"packageName":"//g; s/","severity.*"title":"/: /g; s/".*//g' | head -10 | awk '{print "- **" $0 "**"}' >> $GITHUB_ENV
+                if [ $HIGH_COUNT -gt 10 ]; then
+                  echo "- ... and $(($HIGH_COUNT - 10)) more high vulnerabilities" >> $GITHUB_ENV
+                fi
+                echo "" >> $GITHUB_ENV
               fi
+              
+              # Process medium vulnerabilities
+              if [ $MEDIUM_COUNT -gt 0 ]; then
+                echo "#### 🟠 Medium Impact" >> $GITHUB_ENV
+                grep -o '"packageName":"[^"]*".*"severity":"medium".*"title":"[^"]*"' snyk-results.json | sed 's/"packageName":"//g; s/","severity.*"title":"/: /g; s/".*//g' | head -10 | awk '{print "- **" $0 "**"}' >> $GITHUB_ENV
+                if [ $MEDIUM_COUNT -gt 10 ]; then
+                  echo "- ... and $(($MEDIUM_COUNT - 10)) more medium vulnerabilities" >> $GITHUB_ENV
+                fi
+              fi
+              
+              echo "" >> $GITHUB_ENV
+            else
+              echo "✅ No high or medium vulnerabilities found!" >> $GITHUB_ENV
             fi
-            
-            echo "" >> $GITHUB_ENV
           else
-            echo "✅ No high or medium vulnerabilities found!" >> $GITHUB_ENV
+            echo "SUMMARY<<EOF" >> $GITHUB_ENV
+            echo "## 🔒 Snyk Security Scan Results" >> $GITHUB_ENV
+            echo "" >> $GITHUB_ENV
+            echo "⚠️ Error running Snyk scan. Please check workflow logs for details." >> $GITHUB_ENV
           fi
           echo "EOF" >> $GITHUB_ENV
       
@@ -105,9 +127,3 @@ jobs:
       
       - name: Print vulnerability summary
         run: echo "$SUMMARY"
-
-      - name: Output critical vulnerabilities to logs
-        run: |
-          echo "========== CRITICAL VULNERABILITIES ==========="
-          jq -r '.vulnerabilities[] | select(.severity == "high" or .severity == "medium") | "\(.severity): \(.packageName) - \(.title)"' snyk-results.json
-          echo "==============================================="
