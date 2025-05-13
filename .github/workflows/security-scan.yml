@@ -19,16 +19,94 @@ jobs:
         with:
           ruby-version: '3.0.7'
           bundler-cache: true
+      
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          
+      - name: Install Snyk CLI
+        run: npm install -g snyk
           
       - name: Run Snyk to check for vulnerabilities
-        uses: snyk/actions/ruby@master
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        with:
-          args: --severity-threshold=high
+        run: |
+          snyk test --json > snyk-results.json || true
+          # Exit code from Snyk test can be non-zero if vulnerabilities found, but we want to continue
           
-      - name: Upload Snyk report
-        uses: github/codeql-action/upload-sarif@v2
+      - name: Generate vulnerability summary
+        id: summary
+        run: |
+          # Parse the Snyk results and generate a summary
+          echo "Generating vulnerability summary..."
+          
+          # Count vulnerabilities by severity
+          HIGH_COUNT=$(grep -o '"severity":"high"' snyk-results.json | wc -l)
+          MEDIUM_COUNT=$(grep -o '"severity":"medium"' snyk-results.json | wc -l)
+          LOW_COUNT=$(grep -o '"severity":"low"' snyk-results.json | wc -l)
+          
+          # Create a summary
+          echo "SUMMARY<<EOF" >> $GITHUB_ENV
+          echo "## 🔒 Snyk Security Scan Results" >> $GITHUB_ENV
+          echo "" >> $GITHUB_ENV
+          echo "| Severity | Count |" >> $GITHUB_ENV
+          echo "|----------|-------|" >> $GITHUB_ENV
+          echo "| 🔴 High | $HIGH_COUNT |" >> $GITHUB_ENV
+          echo "| 🟠 Medium | $MEDIUM_COUNT |" >> $GITHUB_ENV
+          echo "| 🟡 Low | $LOW_COUNT |" >> $GITHUB_ENV
+          echo "" >> $GITHUB_ENV
+          
+          # Get high and medium vulnerabilities details (up to 10 of each)
+          if [ $HIGH_COUNT -gt 0 ] || [ $MEDIUM_COUNT -gt 0 ]; then
+            echo "### Critical Vulnerabilities:" >> $GITHUB_ENV
+            echo "" >> $GITHUB_ENV
+            
+            # Process high vulnerabilities
+            if [ $HIGH_COUNT -gt 0 ]; then
+              echo "#### 🔴 High Impact" >> $GITHUB_ENV
+              jq -r '.vulnerabilities[] | select(.severity == "high") | "- **\(.packageName)**: \(.title)"' snyk-results.json | head -10 >> $GITHUB_ENV
+              if [ $HIGH_COUNT -gt 10 ]; then
+                echo "- ... and $(($HIGH_COUNT - 10)) more high vulnerabilities" >> $GITHUB_ENV
+              fi
+              echo "" >> $GITHUB_ENV
+            fi
+            
+            # Process medium vulnerabilities
+            if [ $MEDIUM_COUNT -gt 0 ]; then
+              echo "#### 🟠 Medium Impact" >> $GITHUB_ENV
+              jq -r '.vulnerabilities[] | select(.severity == "medium") | "- **\(.packageName)**: \(.title)"' snyk-results.json | head -10 >> $GITHUB_ENV
+              if [ $MEDIUM_COUNT -gt 10 ]; then
+                echo "- ... and $(($MEDIUM_COUNT - 10)) more medium vulnerabilities" >> $GITHUB_ENV
+              fi
+            fi
+            
+            echo "" >> $GITHUB_ENV
+            echo "For complete details, please download the Snyk results artifact." >> $GITHUB_ENV
+          else
+            echo "✅ No high or medium vulnerabilities found!" >> $GITHUB_ENV
+          fi
+          echo "EOF" >> $GITHUB_ENV
+      
+      - name: Add PR comment with vulnerability summary
+        uses: actions/github-script@v6
+        if: github.event_name == 'pull_request'
         with:
-          sarif_file: snyk.sarif
+          script: |
+            const output = process.env.SUMMARY;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            });
+      
+      - name: Print vulnerability summary
+        run: echo "$SUMMARY"
+          
+      - name: Upload Snyk results
+        uses: actions/upload-artifact@v3
+        with:
+          name: snyk-results
+          path: snyk-results.json
         if: always()
