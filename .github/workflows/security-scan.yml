@@ -1,0 +1,34 @@
+name: Security Scan
+
+on:
+  push:
+    branches: [ main, PAT-313-Setup-Security-Scanning-With-Snyk-for-Teams-API ] #remove PAT-313-Setup-Security-Scanning-With-Snyk-for-Teams-API after testing
+  pull_request:
+    branches: [ main, PAT-313-Setup-Security-Scanning-With-Snyk-for-Teams-API ] #remove PAT-313-Setup-Security-Scanning-With-Snyk-for-Teams-API after testing
+  schedule:
+    - cron: '0 7 * * 1'
+
+jobs:
+  snyk-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.0.7'
+          bundler-cache: true
+          
+      - name: Run Snyk to check for vulnerabilities
+        uses: snyk/actions/ruby@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high
+          
+      - name: Upload Snyk report
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: snyk.sarif
+        if: always()
