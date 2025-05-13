@@ -12,7 +12,7 @@ jobs:
   snyk-scan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v2
       
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
@@ -21,7 +21,7 @@ jobs:
           bundler-cache: true
       
       - name: Set up Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v2
         with:
           node-version: '18'
           
@@ -38,6 +38,9 @@ jobs:
       - name: Generate vulnerability summary
         id: summary
         run: |
+          # Make sure jq is installed
+          sudo apt-get update -y && sudo apt-get install -y jq
+          
           # Parse the Snyk results and generate a summary
           echo "Generating vulnerability summary..."
           
@@ -89,7 +92,7 @@ jobs:
           echo "EOF" >> $GITHUB_ENV
       
       - name: Add PR comment with vulnerability summary
-        uses: actions/github-script@v6
+        uses: actions/github-script@v5
         if: github.event_name == 'pull_request'
         with:
           script: |
@@ -105,7 +108,7 @@ jobs:
         run: echo "$SUMMARY"
           
       - name: Upload Snyk results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v2
         with:
           name: snyk-results
           path: snyk-results.json
