@@ -32,8 +32,8 @@ jobs:
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         run: |
+          # Save output to a file and to a variable for summary generation
           snyk test --json > snyk-results.json || true
-          # Exit code from Snyk test can be non-zero if vulnerabilities found, but we want to continue
           
       - name: Generate vulnerability summary
         id: summary
@@ -85,7 +85,6 @@ jobs:
             fi
             
             echo "" >> $GITHUB_ENV
-            echo "For complete details, please download the Snyk results artifact." >> $GITHUB_ENV
           else
             echo "✅ No high or medium vulnerabilities found!" >> $GITHUB_ENV
           fi
@@ -106,10 +105,9 @@ jobs:
       
       - name: Print vulnerability summary
         run: echo "$SUMMARY"
-          
-      - name: Upload Snyk results
-        uses: actions/upload-artifact@v2
-        with:
-          name: snyk-results
-          path: snyk-results.json
-        if: always()
+
+      - name: Output critical vulnerabilities to logs
+        run: |
+          echo "========== CRITICAL VULNERABILITIES ==========="
+          jq -r '.vulnerabilities[] | select(.severity == "high" or .severity == "medium") | "\(.severity): \(.packageName) - \(.title)"' snyk-results.json
+          echo "==============================================="
