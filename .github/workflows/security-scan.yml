@@ -8,16 +8,6 @@ on:
   schedule:
     - cron: '0 7 * * 1'
 
-name: Security Scan
-
-on:
-  push:
-    branches: [ main, master, develop ]
-  pull_request:
-    branches: [ main, master, develop ]
-  schedule:
-    - cron: '0 7 * * 1'  # Run every Monday at 7:00 UTC
-
 jobs:
   snyk-scan:
     runs-on: ubuntu-latest
