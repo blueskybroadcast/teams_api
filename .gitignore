@@ -1,3 +1,7 @@
+*.DS_Store
+*.swp
+.env
+.tool-versions
 /.bundle/
 /doc/
 /log/*.log

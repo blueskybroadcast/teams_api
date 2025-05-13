@@ -6,8 +6,42 @@ module TeamsApi
       class AuthController < ActionController::API
         include TeamsApi::Concerns::JwtAware
 
-        skip_before_action :authenticate_request, only: [:login, :refresh]
+        # Define all required callbacks before skipping them
+        before_action :authenticate_request
+        before_action :authorize_with_jwt, if: -> { jwt_enabled? && jwt.present? }
+        before_action :set_jwt_auth_header, if: -> { jwt_enabled? && jwt.present? }
+        before_action :create_jwt_session, if: :create_jwt_session?
 
+        # Now skip them for specific actions
+        skip_before_action :authenticate_request, only: [:login, :refresh]
+        skip_before_action :authorize_with_jwt, only: [:login, :refresh]
+        skip_before_action :set_jwt_auth_header, only: [:login, :refresh]
+        skip_before_action :create_jwt_session, only: [:login, :refresh]
+
+        # Define authenticate_request method
+        def authenticate_request
+          unless current_user
+            render json: { error: 'Unauthorized' }, status: :unauthorized
+          end
+        end
+
+        # Define authorize_with_jwt method (which was expected from JWTSessions::RailsAuthorization)
+        def authorize_with_jwt
+          authorize_access_request!
+        rescue JWTSessions::Errors::Error
+          if create_session_from_existing_jwt?
+            create_session_from_existing_jwt
+          else
+            render json: { error: 'Invalid token' }, status: :unauthorized
+          end
+        end
+
+        # Define set_jwt_auth_header
+        def set_jwt_auth_header
+          request.headers[JWTSessions.access_header] ||= "Bearer #{jwt}"
+        end
+
+        # Original action methods below
         def login
           user = User.find_by(email: params[:email])
 

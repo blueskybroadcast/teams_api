@@ -1,5 +1,9 @@
 # frozen_string_literal: true
 
+require 'logger'
+require_relative 'logger_patch'
+require 'active_model_serializers'
+
 module TeamsApi
   class Engine < ::Rails::Engine
     isolate_namespace TeamsApi

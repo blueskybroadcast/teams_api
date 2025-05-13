@@ -3,10 +3,16 @@
 JWTSessions.algorithm = 'HS256'
 JWTSessions.encryption_key = ENV['JWT_SECRET_KEY']
 
-require_relative '../../app/lib/teams_api/jwt_stores/rails_cache_store'
-cache_opts = {
-  prefix: 'jwt_',
-  expiration: ENV.fetch('JWT_CACHE_EXPIRATION', 3600 * 24).to_i  # 24 hours default
-}
+# Configure Redis store
+redis_opts = { token_prefix: 'jwt_' }
 
-JWTSessions.token_store = TeamsApi::JwtStores::RailsCacheStore.new(cache_opts)
+if ENV['REDIS_URL'].present?
+  redis_opts[:url] = ENV['REDIS_URL']
+  redis_opts[:ssl_params] = { verify_mode: OpenSSL::SSL::VERIFY_NONE }
+else
+  redis_opts[:redis_host] = ENV.fetch('REDIS_HOST', '127.0.0.1')
+  redis_opts[:redis_port] = ENV.fetch('REDIS_PORT', '6379')
+  redis_opts[:redis_db_name] = ENV.fetch('REDIS_DB', '0')
+end
+
+JWTSessions.token_store = :redis, redis_opts

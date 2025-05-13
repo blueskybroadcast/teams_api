@@ -12,7 +12,16 @@ module TeamsApi
 
         def authenticate_request
           unless current_user
-            render json: { error: 'Unauthorized' }, status: :unauthorized
+            render json: {
+              error: 'Unauthorized',
+              details: jwt.present? ? 'Invalid or expired token' : 'No authentication token provided'
+            }, status: :unauthorized
+          end
+        end
+
+        def require_account
+          unless current_account
+            render json: { error: 'Account required' }, status: :unauthorized
           end
         end
       end
