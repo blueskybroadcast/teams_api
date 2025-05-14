@@ -1,0 +1,213 @@
+name: Security Scan
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [ main ]
+  schedule:
+    - cron: '0 7 * * 1'
+
+jobs:
+  snyk-scan:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.0.7'
+          bundler-cache: false
+      
+      - name: Configure Bundler
+        run: |
+          gem install bundler
+          bundle config unset deployment
+          bundle config set --local path vendor/bundle
+          bundle install --jobs 4 --retry 3
+      
+      - name: Set up Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: '18'
+          
+      - name: Install Snyk CLI
+        run: npm install -g snyk
+          
+      - name: Run Snyk to check Ruby dependencies
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          snyk test --file=Gemfile --json > snyk-results.json || true
+          
+      - name: Generate vulnerability summary
+        id: summary
+        run: |
+          echo "Generating vulnerability summary..."
+          
+          if [ -s snyk-results.json ]; then
+            HIGH_COUNT=$(grep -o '"severity":"high"' snyk-results.json | wc -l)
+            MEDIUM_COUNT=$(grep -o '"severity":"medium"' snyk-results.json | wc -l)
+            LOW_COUNT=$(grep -o '"severity":"low"' snyk-results.json | wc -l)
+            TOTAL_COUNT=$((HIGH_COUNT + MEDIUM_COUNT + LOW_COUNT))
+            
+            # Set output values for later use
+            echo "high_count=$HIGH_COUNT" >> $GITHUB_OUTPUT
+            echo "medium_count=$MEDIUM_COUNT" >> $GITHUB_OUTPUT
+            echo "low_count=$LOW_COUNT" >> $GITHUB_OUTPUT
+            echo "total_count=$TOTAL_COUNT" >> $GITHUB_OUTPUT
+            
+            echo "SUMMARY<<EOF" >> $GITHUB_ENV
+            echo "## 🔒 Snyk Security Scan Results" >> $GITHUB_ENV
+            echo "" >> $GITHUB_ENV
+            echo "| Severity | Count |" >> $GITHUB_ENV
+            echo "|----------|-------|" >> $GITHUB_ENV
+            echo "| 🔴 High | $HIGH_COUNT |" >> $GITHUB_ENV
+            echo "| 🟠 Medium | $MEDIUM_COUNT |" >> $GITHUB_ENV
+            echo "| 🟡 Low | $LOW_COUNT |" >> $GITHUB_ENV
+            echo "" >> $GITHUB_ENV
+            
+            if [ $HIGH_COUNT -gt 0 ] || [ $MEDIUM_COUNT -gt 0 ]; then
+              echo "### Critical Vulnerabilities:" >> $GITHUB_ENV
+              echo "" >> $GITHUB_ENV
+              
+              if [ $HIGH_COUNT -gt 0 ]; then
+                echo "#### 🔴 High Impact" >> $GITHUB_ENV
+                grep -o '"packageName":"[^"]*".*"severity":"high".*"title":"[^"]*"' snyk-results.json | sed 's/"packageName":"//g; s/","severity.*"title":"/: /g; s/".*//g' | head -10 | awk '{print "- **" $0 "**"}' >> $GITHUB_ENV
+                if [ $HIGH_COUNT -gt 10 ]; then
+                  echo "- ... and $(($HIGH_COUNT - 10)) more high vulnerabilities" >> $GITHUB_ENV
+                fi
+                echo "" >> $GITHUB_ENV
+              fi
+              
+              if [ $MEDIUM_COUNT -gt 0 ]; then
+                echo "#### 🟠 Medium Impact" >> $GITHUB_ENV
+                grep -o '"packageName":"[^"]*".*"severity":"medium".*"title":"[^"]*"' snyk-results.json | sed 's/"packageName":"//g; s/","severity.*"title":"/: /g; s/".*//g' | head -10 | awk '{print "- **" $0 "**"}' >> $GITHUB_ENV
+                if [ $MEDIUM_COUNT -gt 10 ]; then
+                  echo "- ... and $(($MEDIUM_COUNT - 10)) more medium vulnerabilities" >> $GITHUB_ENV
+                fi
+              fi
+              
+              echo "" >> $GITHUB_ENV
+            else
+              echo "✅ No high or medium vulnerabilities found!" >> $GITHUB_ENV
+            fi
+            
+            # Add low severity details if there are any
+            if [ $LOW_COUNT -gt 0 ]; then
+              echo "### Low Severity Vulnerabilities:" >> $GITHUB_ENV
+              echo "Found $LOW_COUNT low severity vulnerabilities. See the full report for details." >> $GITHUB_ENV
+              echo "" >> $GITHUB_ENV
+            fi
+          else
+            echo "SUMMARY<<EOF" >> $GITHUB_ENV
+            echo "## 🔒 Snyk Security Scan Results" >> $GITHUB_ENV
+            echo "" >> $GITHUB_ENV
+            echo "✅ No vulnerabilities found!" >> $GITHUB_ENV
+            
+            # Set values to 0 for later use
+            echo "high_count=0" >> $GITHUB_OUTPUT
+            echo "medium_count=0" >> $GITHUB_OUTPUT
+            echo "low_count=0" >> $GITHUB_OUTPUT
+            echo "total_count=0" >> $GITHUB_OUTPUT
+          fi
+          echo "EOF" >> $GITHUB_ENV
+      
+      - name: Add PR comment with vulnerability summary
+        uses: actions/github-script@v5
+        if: github.event_name == 'pull_request'
+        with:
+          script: |
+            const output = process.env.SUMMARY;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            });
+      
+      - name: Print vulnerability summary
+        run: echo "$SUMMARY"
+        
+      - name: Extract CODEOWNERS
+        id: codeowners
+        if: github.event_name == 'schedule' && steps.summary.outputs.total_count > 0
+        run: |
+          # Look for CODEOWNERS file in various locations
+          CODEOWNERS_FILE=""
+          if [ -f ".github/CODEOWNERS" ]; then
+            CODEOWNERS_FILE=".github/CODEOWNERS"
+          elif [ -f "CODEOWNERS" ]; then
+            CODEOWNERS_FILE="CODEOWNERS"
+          elif [ -f "docs/CODEOWNERS" ]; then
+            CODEOWNERS_FILE="docs/CODEOWNERS"
+          fi
+          
+          if [ -n "$CODEOWNERS_FILE" ]; then
+            # Extract GitHub usernames from CODEOWNERS file
+            OWNERS=$(grep -v "^#" "$CODEOWNERS_FILE" | grep -o "@[a-zA-Z0-9-]+" | sort -u | tr '\n' ' ')
+            echo "Found code owners: $OWNERS"
+            echo "owners=$OWNERS" >> $GITHUB_OUTPUT
+          else
+            echo "No CODEOWNERS file found"
+            echo "owners=@team" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Create GitHub Issue for Weekly Scan
+        uses: actions/github-script@v5
+        if: github.event_name == 'schedule' && steps.summary.outputs.total_count > 0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const today = new Date().toISOString().slice(0, 10);
+            const highCount = Number(process.env.HIGH_COUNT);
+            const mediumCount = Number(process.env.MEDIUM_COUNT);
+            const lowCount = Number(process.env.LOW_COUNT);
+            const totalCount = Number(process.env.TOTAL_COUNT);
+            const codeOwners = process.env.OWNERS || '@team';
+            
+            // Create issue title based on severity
+            let title = "";
+            if (highCount > 0) {
+              title = `🚨 Security Alert: ${highCount} high, ${mediumCount} medium, ${lowCount} low vulnerabilities found`;
+            } else if (mediumCount > 0) {
+              title = `⚠️ Security Alert: ${mediumCount} medium and ${lowCount} low vulnerabilities found`;
+            } else {
+              title = `📝 Security Alert: ${lowCount} low severity vulnerabilities found`;
+            }
+            
+            // Create issue body
+            let body = `# Weekly Security Scan Alert\n\n`;
+            body += `${codeOwners} \n\n`;
+            body += `The weekly security scan has detected vulnerabilities in the Teams API dependencies:\n\n`;
+            body += `| Severity | Count |\n`;
+            body += `|----------|-------|\n`;
+            body += `| 🔴 High | ${highCount} |\n`;
+            body += `| 🟠 Medium | ${mediumCount} |\n`;
+            body += `| 🟡 Low | ${lowCount} |\n\n`;
+            
+            // Add vulnerabilities details
+            body += process.env.SUMMARY.split("## 🔒 Snyk Security Scan Results")[1];
+            body += `\n\nThis issue was automatically created by the weekly security scan on ${today}.`;
+            
+            // Create the issue
+            const issue = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body,
+              labels: ['security', 'dependencies']
+            });
+            
+            console.log(`Created issue #${issue.data.number}: ${issue.data.html_url}`);
+        env:
+          OWNERS: ${{ steps.codeowners.outputs.owners }}
+          HIGH_COUNT: ${{ steps.summary.outputs.high_count }}
+          MEDIUM_COUNT: ${{ steps.summary.outputs.medium_count }}
+          LOW_COUNT: ${{ steps.summary.outputs.low_count }}
+          TOTAL_COUNT: ${{ steps.summary.outputs.total_count }}
