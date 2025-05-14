@@ -1,0 +1,222 @@
+name: Version Bump PR
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'lib/teams_api/version.rb'
+
+jobs:
+  create-version-pr:
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[skip-version]')"
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.VERSION_PAT }}
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.0'
+          bundler-cache: false
+
+      - name: Install dependencies
+        run: |
+          # Install dependencies in non-deployment mode
+          bundle config set --local deployment false
+          bundle install
+
+      - name: Configure Git
+        run: |
+          git config user.name "Manuel Crosthwaite"
+          git config user.email "mcrosthwaite@blueskyelearn.com"
+
+      - name: Determine Version Bump Type
+        id: bump-type
+        run: |
+          if [[ "${{ github.event.head_commit.message }}" =~ \[major\] ]]; then
+            echo "BUMP_TYPE=major" >> $GITHUB_ENV
+          elif [[ "${{ github.event.head_commit.message }}" =~ \[minor\] ]]; then
+            echo "BUMP_TYPE=minor" >> $GITHUB_ENV
+          else
+            echo "BUMP_TYPE=patch" >> $GITHUB_ENV
+          fi
+
+      - name: Set Target Branch
+        run: |
+          CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+          echo "Target branch: $CURRENT_BRANCH"
+          echo "CURRENT_BRANCH=$CURRENT_BRANCH" >> $GITHUB_ENV
+
+      - name: Process Version Change
+        run: |
+          # Debug: Show git status
+          git status
+          
+          # Get current version with robust pattern matching
+          version_file="lib/teams_api/version.rb"
+          file_content=$(cat "$version_file")
+          echo "Version file content:"
+          echo "$file_content"
+          
+          # Extract version using regex
+          if [[ $file_content =~ VERSION[[:space:]]*=[[:space:]]*[\'\"](([0-9]+)\.([0-9]+)\.([0-9]+))[\'\"] ]]; then
+            current_version="${BASH_REMATCH[1]}"
+            major="${BASH_REMATCH[2]}"
+            minor="${BASH_REMATCH[3]}"
+            patch="${BASH_REMATCH[4]}"
+            
+            echo "Current version: $current_version (Major: $major, Minor: $minor, Patch: $patch)"
+            
+            # Increment version based on bump type
+            if [[ "$BUMP_TYPE" == "major" ]]; then
+              major=$((major + 1))
+              minor=0
+              patch=0
+              echo "Bumping MAJOR version"
+            elif [[ "$BUMP_TYPE" == "minor" ]]; then
+              minor=$((minor + 1))
+              patch=0
+              echo "Bumping MINOR version"
+            else
+              patch=$((patch + 1))
+              echo "Bumping PATCH version"
+            fi
+            
+            new_version="$major.$minor.$patch"
+            echo "New version: $new_version"
+            
+            if [ "$current_version" == "$new_version" ]; then
+              echo "Error: New version is the same as current version. Nothing to update."
+              exit 1
+            fi
+            
+            echo "NEW_VERSION=$new_version" >> $GITHUB_ENV
+            
+            # Create branch with unique name
+            timestamp=$(date +%s)
+            branch_name="version-bump-$new_version-$timestamp"
+            echo "BRANCH_NAME=$branch_name" >> $GITHUB_ENV
+            
+            git checkout -b "$branch_name"
+            
+            # Replace version in file - handle both single and double quotes
+            if [[ $file_content =~ VERSION[[:space:]]*=[[:space:]]*[\'\"] ]]; then
+              quote_char="${BASH_REMATCH[0]: -1}"
+              echo "Found version with quote character: $quote_char"
+              
+              # Replace version with sed, preserving the quote style
+              sed -i "s/VERSION[[:space:]]*=[[:space:]]*$quote_char$current_version$quote_char/VERSION = $quote_char$new_version$quote_char/" "$version_file"
+              
+              # Verify change
+              new_content=$(cat "$version_file")
+              echo "Updated version file content:"
+              echo "$new_content"
+              
+              if ! grep -q "$new_version" "$version_file"; then
+                echo "ERROR: Version update failed. New version not found in file."
+                exit 1
+              fi
+              
+              # Stage and commit changes
+              git add "$version_file"
+              git diff --cached
+              
+              git commit -m "Bump version to $new_version [skip-version]"
+              git push origin "$branch_name"
+              
+              echo "Successfully created and pushed branch $branch_name with version $new_version"
+            else
+              echo "Error: Could not determine quote style for version replacement"
+              exit 1
+            fi
+          else
+            echo "Error: Could not extract version using regex"
+            exit 1
+          fi
+
+      # Create PR using curl and GitHub API with Auto-Merge enabled
+      - name: Create Pull Request with GitHub API
+        run: |
+          # Get repository info
+          REPO_OWNER=$(echo "$GITHUB_REPOSITORY" | cut -d '/' -f 1)
+          REPO_NAME=$(echo "$GITHUB_REPOSITORY" | cut -d '/' -f 2)
+          
+          # Create PR using GitHub API
+          PR_RESPONSE=$(curl -s -X POST \
+            -H "Authorization: token ${{ secrets.VERSION_PAT }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/pulls" \
+            -d @- << EOF
+          {
+            "title": "Bump version to ${{ env.NEW_VERSION }}",
+            "body": "Automated version bump from ${{ github.workflow }}\n\nVersion bump type: ${{ env.BUMP_TYPE }}\nNew version: ${{ env.NEW_VERSION }}\n\nThis PR will be automatically merged when approved.",
+            "head": "${{ env.BRANCH_NAME }}",
+            "base": "${{ env.CURRENT_BRANCH }}",
+            "maintainer_can_modify": true
+          }
+          EOF
+          )
+          
+          # Extract PR number from response
+          PR_NUMBER=$(echo "$PR_RESPONSE" | grep -o '"number": [0-9]*' | grep -o '[0-9]*' | head -1)
+          PR_URL=$(echo "$PR_RESPONSE" | grep -o '"html_url": "[^"]*"' | grep -o 'https://[^"]*' | head -1)
+          
+          if [[ ! -z "$PR_NUMBER" ]]; then
+            echo "Created PR #$PR_NUMBER: $PR_URL"
+            
+            # Add labels to the PR
+            curl -s -X POST \
+              -H "Authorization: token ${{ secrets.VERSION_PAT }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/issues/$PR_NUMBER/labels" \
+              -d '{"labels":["automated","version"]}'
+            
+            echo "Added labels to PR #$PR_NUMBER"
+            
+            # Enable auto-merge using GitHub API
+            # First, try the v3 API with the merge_method parameter
+            AUTOMERGE_RESPONSE=$(curl -s -X PUT \
+              -H "Authorization: token ${{ secrets.VERSION_PAT }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/pulls/$PR_NUMBER/merge" \
+              -d '{"merge_method":"squash"}')
+            
+            if [[ "$AUTOMERGE_RESPONSE" == *"Pull Request is not mergeable"* || "$AUTOMERGE_RESPONSE" == *"Required status check"* ]]; then
+              echo "PR not immediately mergeable. Setting auto-merge..."
+              
+              # First get the PR node ID for GraphQL
+              PR_DETAILS=$(curl -s -X GET \
+                -H "Authorization: token ${{ secrets.VERSION_PAT }}" \
+                -H "Accept: application/vnd.github.v3+json" \
+                "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/pulls/$PR_NUMBER")
+              
+              # Try the GitHub API v4 (GraphQL)
+              # The proper endpoint for auto-merge in API v4
+              AUTO_MERGE_RESPONSE=$(curl -s -X PATCH \
+                -H "Authorization: token ${{ secrets.VERSION_PAT }}" \
+                -H "Accept: application/vnd.github.v3+json" \
+                "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/pulls/$PR_NUMBER" \
+                -d '{"auto_merge": true, "merge_method": "squash"}')
+              
+              echo "Auto-merge response: $AUTO_MERGE_RESPONSE"
+              
+              if [[ "$AUTO_MERGE_RESPONSE" == *"auto_merge"* ]]; then
+                echo "Auto-merge enabled successfully"
+              else
+                echo "Failed to enable auto-merge - this might be a repository setting issue"
+                echo "Please verify 'Allow auto-merge' is enabled in repository settings"
+              fi
+            else
+              echo "PR merged immediately: $AUTOMERGE_RESPONSE"
+            fi
+            
+            echo "PR #$PR_NUMBER created successfully: $PR_URL"
+          else
+            echo "Failed to create PR. API Response:"
+            echo "$PR_RESPONSE"
+            exit 1
+          fi
