@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'securerandom'
+
 module TeamsApi
   module Adapters
     class MembershipAdapter
@@ -18,14 +20,8 @@ module TeamsApi
       end
 
       def self.create(team_id:, account_id:, attributes:)
-        normalized_attrs = attributes.dup
-
-        if normalized_attrs[:user_id].present?
-          normalized_attrs[:member_id] = normalized_attrs.delete(:user_id)
-        end
-
         ::Teams::Membership.create(
-          normalized_attrs.merge(
+          attributes.merge(
             team_id: team_id,
             account_id: account_id
           )
@@ -35,6 +31,9 @@ module TeamsApi
       def self.invite(team_id:, account_id:, email:, as_manager: false)
         user = ::User.find_by(email: email, account_id: account_id)
 
+        # Generate a secure invitation token
+        invitation_token = generate_token
+
         if user
           create(
             team_id: team_id,
@@ -42,7 +41,8 @@ module TeamsApi
             attributes: {
               user_id: user.id,
               manager: as_manager,
-              invited_at: Time.current
+              invited_at: Time.current,
+              invite_token: invitation_token
             }
           )
         else
@@ -52,7 +52,8 @@ module TeamsApi
             attributes: {
               invitation_email: email,
               manager: as_manager,
-              invited_at: Time.current
+              invited_at: Time.current,
+              invite_token: invitation_token
             }
           )
         end
@@ -65,16 +66,16 @@ module TeamsApi
       end
 
       def self.accept_invitation(token:, user_id:)
-        membership = ::Teams::Membership.find_by_token(token)
+        membership = ::Teams::Membership.find_by(invite_token: token)
 
-        return false unless membership&.valid_invite_token?
+        return false unless membership && valid_invite?(membership)
 
         user = ::User.find(user_id)
         return false if membership.invitation_email.present? &&
                         !membership.invitation_email.casecmp(user.email).zero?
 
         membership.update(
-          member_id: user_id,
+          user_id: user_id,
           accepted_at: Time.current
         )
       end
@@ -82,6 +83,17 @@ module TeamsApi
       def self.delete(id:, team_id:, account_id:)
         membership = find(id: id, team_id: team_id, account_id: account_id)
         membership&.destroy
+      end
+
+      def self.valid_invite?(membership)
+        membership.invited_at.present? &&
+        membership.accepted_at.nil? &&
+        membership.invite_token.present?
+      end
+
+      def self.generate_token
+        # Generate a secure random token
+        SecureRandom.urlsafe_base64(32)
       end
 
       def self.filter_by_status(memberships, filters)
@@ -96,7 +108,7 @@ module TeamsApi
         end
 
         if filters[:member]
-          result = result.where.not(member_id: nil)
+          result = result.where.not(user_id: nil)
         end
 
         result
