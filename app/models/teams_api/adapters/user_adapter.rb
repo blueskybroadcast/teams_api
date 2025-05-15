@@ -12,8 +12,8 @@ module TeamsApi
       end
 
       def self.in_team(team_id)
-        ::User.joins(:team_members)
-              .where(team_members: { team_id: team_id })
+        ::User.joins(:team_memberships)
+              .where(team_memberships: { team_id: team_id })
               .distinct
       end
     end

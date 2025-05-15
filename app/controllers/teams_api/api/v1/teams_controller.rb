@@ -4,22 +4,23 @@ module TeamsApi
   module Api
     module V1
       class TeamsController < BaseController
-        before_action :set_account_id
+        before_action -> { require_scope('teams:read') }, only: [:index, :show]
+        before_action -> { require_scope('teams:write') }, only: [:create, :update, :destroy]
 
         def index
-          teams = Adapters::TeamAdapter.all(account_id: @account_id)
+          teams = TeamsApi::Adapters::TeamAdapter.all(account_id: @current_account.id)
           render json: teams, each_serializer: TeamSerializer
         end
 
         def show
-          team = Adapters::TeamAdapter.find(id: params[:id], account_id: @account_id)
+          team = TeamsApi::Adapters::TeamAdapter.find(id: params[:id], account_id: @current_account.id)
           render json: team, serializer: TeamSerializer, include: ['members', 'items']
         end
 
         def create
-          team = Adapters::TeamAdapter.create(
+          team = TeamsApi::Adapters::TeamAdapter.create(
             attributes: team_params,
-            account_id: @account_id
+            account_id: @current_account.id
           )
 
           if team.persisted?
@@ -30,10 +31,10 @@ module TeamsApi
         end
 
         def update
-          team = Adapters::TeamAdapter.update(
+          team = TeamsApi::Adapters::TeamAdapter.update(
             id: params[:id],
             attributes: team_params,
-            account_id: @account_id
+            account_id: @current_account.id
           )
 
           if team&.errors&.empty?
@@ -45,7 +46,7 @@ module TeamsApi
         end
 
         def destroy
-          result = Adapters::TeamAdapter.delete(id: params[:id], account_id: @account_id)
+          result = TeamsApi::Adapters::TeamAdapter.delete(id: params[:id], account_id: @current_account.id)
 
           if result
             head :no_content
@@ -68,13 +69,6 @@ module TeamsApi
             :content_visibility,
             :expires_at
           )
-        end
-
-        def set_account_id
-          # This would come from authentication/authorization
-          # For now, we'll use a param or header
-          @account_id = request.headers['X-Account-ID'] || params[:account_id]
-          render json: { error: 'Account ID required' }, status: :bad_request unless @account_id
         end
       end
     end

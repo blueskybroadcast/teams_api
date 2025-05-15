@@ -3,10 +3,9 @@
 module TeamsApi
   module Adapters
     class MembershipAdapter
-
       def self.all(team_id:, account_id:, filters: {})
         memberships = ::Teams::Membership.where(team_id: team_id, account_id: account_id)
-        memberships = memberships.filter_by_status(filters) if filters.present?
+        memberships = filter_by_status(memberships, filters) if filters.present?
         memberships
       end
 
@@ -16,11 +15,6 @@ module TeamsApi
           team_id: team_id,
           account_id: account_id
         ).first
-      end
-
-      def self.search(query:, team_id:, account_id:)
-        ::Teams::Membership.where(team_id: team_id, account_id: account_id)
-                          .search(query)
       end
 
       def self.create(team_id:, account_id:, attributes:)
@@ -80,7 +74,7 @@ module TeamsApi
                         !membership.invitation_email.casecmp(user.email).zero?
 
         membership.update(
-          user_id: user_id,
+          member_id: user_id,
           accepted_at: Time.current
         )
       end
@@ -88,6 +82,24 @@ module TeamsApi
       def self.delete(id:, team_id:, account_id:)
         membership = find(id: id, team_id: team_id, account_id: account_id)
         membership&.destroy
+      end
+
+      def self.filter_by_status(memberships, filters)
+        result = memberships
+
+        if filters[:invite_sent]
+          result = result.where.not(invited_at: nil)
+        end
+
+        if filters[:manager]
+          result = result.where(manager: true)
+        end
+
+        if filters[:member]
+          result = result.where.not(member_id: nil)
+        end
+
+        result
       end
     end
   end

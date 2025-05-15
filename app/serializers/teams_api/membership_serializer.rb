@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module TeamsApi
-  class MembershipSerializer < ActiveModel::Serializer
+  class MembershipSerializer < ::ActiveModel::Serializer
     attributes :id, :user_id, :team_id, :manager,
                :invitation_email, :invited_at, :accepted_at,
                :sso_synced, :auto_reg_skipped_by,

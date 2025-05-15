@@ -7,7 +7,7 @@ module TeamsApi
         skip_before_action :authenticate_request, only: [:accept]
 
         def accept
-          result = Adapters::MembershipAdapter.accept_invitation(
+          result = TeamsApi::Adapters::MembershipAdapter.accept_invitation(
             token: params[:token],
             user_id: params[:user_id]
           )

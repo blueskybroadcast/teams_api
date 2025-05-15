@@ -4,15 +4,16 @@ module TeamsApi
   module Api
     module V1
       class TeamMembershipsController < BaseController
-        before_action :set_account_id
+        before_action -> { require_scope('teams:read') }, only: [:index, :show]
+        before_action -> { require_scope('teams:write') }, only: [:create, :update, :destroy]
 
         def index
           filters = params.permit(:invite_sent, :manager, :member)
                          .to_h.symbolize_keys
 
-          memberships = Adapters::MembershipAdapter.all(
+          memberships = TeamsApi::Adapters::MembershipAdapter.all(
             team_id: params[:team_id],
-            account_id: @account_id,
+            account_id: @current_account.id,
             filters: filters
           )
 
@@ -23,7 +24,7 @@ module TeamsApi
           membership = Adapters::MembershipAdapter.find(
             id: params[:id],
             team_id: params[:team_id],
-            account_id: @account_id
+            account_id: @current_account.id
           )
 
           if membership
@@ -37,7 +38,7 @@ module TeamsApi
           if membership_params[:user_id].present?
             membership = Adapters::MembershipAdapter.create(
               team_id: params[:team_id],
-              account_id: @account_id,
+              account_id: @current_account.id,
               attributes: membership_params
             )
 
@@ -50,7 +51,7 @@ module TeamsApi
           elsif membership_params[:invitation_email].present?
             membership = Adapters::MembershipAdapter.invite(
               team_id: params[:team_id],
-              account_id: @account_id,
+              account_id: @current_account.id,
               email: membership_params[:invitation_email],
               as_manager: membership_params[:manager] || false
             )
@@ -71,7 +72,7 @@ module TeamsApi
           membership = Adapters::MembershipAdapter.update(
             id: params[:id],
             team_id: params[:team_id],
-            account_id: @account_id,
+            account_id: @current_account.id,
             attributes: membership_params
           )
 
@@ -87,7 +88,7 @@ module TeamsApi
           result = Adapters::MembershipAdapter.delete(
             id: params[:id],
             team_id: params[:team_id],
-            account_id: @account_id
+            account_id: @current_account.id
           )
 
           if result
@@ -99,6 +100,14 @@ module TeamsApi
 
         private
 
+        def require_read_scope
+          verify_scope!('teams:read')
+        end
+
+        def require_write_scope
+          verify_scope!('teams:write')
+        end
+
         def membership_params
           params.require(:membership).permit(
             :user_id,
@@ -107,11 +116,6 @@ module TeamsApi
             :access_code_id,
             :auto_reg_skipped_by
           )
-        end
-
-        def set_account_id
-          @account_id = request.headers['X-Account-ID'] || params[:account_id]
-          render json: { error: 'Account ID required' }, status: :bad_request unless @account_id
         end
       end
     end

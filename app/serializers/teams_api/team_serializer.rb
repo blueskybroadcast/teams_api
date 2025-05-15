@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module TeamsApi
-  class TeamSerializer < ActiveModel::Serializer
+  class TeamSerializer < ::ActiveModel::Serializer
     attributes :id, :name, :descriptor, :max_members, :expires_at,
                :enable_content_tab, :full_access, :include_inactive,
                :content_visibility, :created_at, :updated_at,

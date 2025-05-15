@@ -4,6 +4,16 @@ module TeamsApi
   class Engine < ::Rails::Engine
     isolate_namespace TeamsApi
 
+    initializer "teams_api.load_dependencies" do
+      begin
+        require 'oauth_jwt'
+        require 'active_model_serializers'  # Add this line
+        Rails.logger.info "Dependencies loaded successfully for TeamsApi"
+      rescue LoadError => e
+        Rails.logger.warn "Failed to load dependency: #{e.message}"
+      end
+    end
+
     initializer "teams_api.assets.precompile" do |app|
       app.config.assets.precompile += %w( teams_api/application.js teams_api/application.css )
     end
@@ -15,6 +25,13 @@ module TeamsApi
     end
 
     config.to_prepare do
+      begin
+        require 'active_model_serializers' if defined?(ActiveModel::Serializer).nil?
+        require 'oauth_jwt' if defined?(OauthJwt).nil?
+      rescue LoadError => e
+        Rails.logger.warn "Failed to load dependency: #{e.message}"
+      end
+
       Dir.glob(Engine.root.join("app", "**", "*.rb")).each do |file|
         require_dependency file
       end
