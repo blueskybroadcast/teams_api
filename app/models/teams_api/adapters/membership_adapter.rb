@@ -31,7 +31,6 @@ module TeamsApi
       def self.invite(team_id:, account_id:, email:, as_manager: false)
         user = ::User.find_by(email: email, account_id: account_id)
 
-        # Generate a secure invitation token
         invitation_token = generate_token
 
         if user
