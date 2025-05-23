@@ -2,7 +2,6 @@ version: 2.1
 
 orbs:
   ruby: circleci/ruby@2.1.0
-  snyk: snyk/snyk@2.0.0
 
 jobs:
   test:
@@ -51,7 +50,7 @@ jobs:
 
   security:
     docker:
-      - image: cimg/ruby:3.0
+      - image: cimg/ruby:3.0-node
         environment:
           BUNDLE_JOBS: 3
           BUNDLE_RETRY: 3
@@ -59,12 +58,24 @@ jobs:
     steps:
       - checkout
       - ruby/install-deps
-      - snyk/scan:
-          severity-threshold: high
-          fail-on-issues: true
-          monitor-on-build: true
-          project: ${CIRCLE_PROJECT_REPONAME}/${CIRCLE_BRANCH}
-          additional-arguments: --all-projects
+      - run:
+          name: Install Snyk CLI
+          command: |
+            curl -Lo snyk https://github.com/snyk/cli/releases/latest/download/snyk-linux
+            chmod +x snyk
+            sudo mv snyk /usr/local/bin/
+      - run:
+          name: Authenticate with Snyk
+          command: snyk auth $SNYK_TOKEN
+      - run:
+          name: Run Snyk Security Scan
+          command: |
+            snyk test --severity-threshold=high --file=Gemfile.lock
+      - run:
+          name: Monitor project on Snyk
+          command: |
+            snyk monitor --project-name=${CIRCLE_PROJECT_REPONAME}/${CIRCLE_BRANCH}
+          when: on_success
 
   build_gem:
     docker:
