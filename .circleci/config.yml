@@ -10,11 +10,17 @@ jobs:
         environment:
           BUNDLE_JOBS: 3
           BUNDLE_RETRY: 3
-          BUNDLE_PATH: vendor/bundle
           RAILS_ENV: test
     steps:
       - checkout
-      - ruby/install-deps
+      - run:
+          name: Configure Bundler
+          command: |
+            bundle config set --local path vendor/bundle
+            bundle config unset deployment
+      - run:
+          name: Install dependencies
+          command: bundle install --jobs=4 --retry=3
       - run:
           name: Run tests
           command: |
@@ -36,10 +42,16 @@ jobs:
         environment:
           BUNDLE_JOBS: 3
           BUNDLE_RETRY: 3
-          BUNDLE_PATH: vendor/bundle
     steps:
       - checkout
-      - ruby/install-deps
+      - run:
+          name: Configure Bundler
+          command: |
+            bundle config set --local path vendor/bundle
+            bundle config unset deployment
+      - run:
+          name: Install dependencies
+          command: bundle install --jobs=4 --retry=3
       - run:
           name: Run RuboCop
           command: bundle exec rubocop --config ruby.yml --format progress --format junit --out /tmp/rubocop-results.xml
@@ -54,10 +66,16 @@ jobs:
         environment:
           BUNDLE_JOBS: 3
           BUNDLE_RETRY: 3
-          BUNDLE_PATH: vendor/bundle
     steps:
       - checkout
-      - ruby/install-deps
+      - run:
+          name: Configure Bundler
+          command: |
+            bundle config set --local path vendor/bundle
+            bundle config unset deployment
+      - run:
+          name: Install dependencies
+          command: bundle install --jobs=4 --retry=3
       - run:
           name: Install Snyk CLI
           command: |
@@ -83,42 +101,33 @@ jobs:
         environment:
           BUNDLE_JOBS: 3
           BUNDLE_RETRY: 3
-          BUNDLE_PATH: vendor/bundle
     steps:
       - checkout
-      - ruby/install-deps
+      - run:
+          name: Configure Bundler
+          command: |
+            bundle config set --local path vendor/bundle
+            bundle config unset deployment
+      - run:
+          name: Install dependencies
+          command: bundle install --jobs=4 --retry=3
       - run:
           name: Build gem
           command: |
             gem build teams_api.gemspec
             mkdir -p /tmp/gems
             mv *.gem /tmp/gems/
+            ls -la /tmp/gems/
       - store_artifacts:
           path: /tmp/gems
           destination: gems
-      - persist_to_workspace:
-          root: /tmp/gems
-          paths:
-            - "*.gem"
-
-  publish_gem:
-    docker:
-      - image: cimg/ruby:3.0
-    steps:
-      - checkout
-      - attach_workspace:
-          at: /tmp/gems
       - run:
-          name: Setup RubyGems credentials
+          name: Display gem info
           command: |
-            mkdir -p ~/.gem
-            echo -e "---\r\n:rubygems_api_key: $RUBYGEMS_API_KEY" > ~/.gem/credentials
-            chmod 0600 ~/.gem/credentials
-      - run:
-          name: Publish to RubyGems
-          command: |
-            cd /tmp/gems
-            gem push *.gem
+            echo "✅ Gem built successfully!"
+            echo "📦 Gem file: $(ls /tmp/gems/*.gem)"
+            echo "🏷️  Version: $(gem specification /tmp/gems/*.gem version)"
+            echo "📄 Description: $(gem specification /tmp/gems/*.gem description)"
 
 workflows:
   version: 2
@@ -132,14 +141,3 @@ workflows:
             - test
             - lint
             - security
-          filters:
-            branches:
-              only: main
-      - publish_gem:
-          requires:
-            - build_gem
-          filters:
-            branches:
-              ignore: /.*/
-            tags:
-              only: /^v.*/
