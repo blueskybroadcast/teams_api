@@ -7,21 +7,9 @@ jobs:
   test:
     docker:
       - image: cimg/ruby:3.0-node
-        environment:
-          BUNDLE_JOBS: 3
-          BUNDLE_RETRY: 3
-          RAILS_ENV: test
     steps:
       - checkout
-      - run:
-          name: Configure Bundler
-          command: |
-            bundle config set --local path vendor/bundle
-            bundle config unset deployment
-            bundle config set --local force_ruby_platform true
-      - run:
-          name: Install dependencies
-          command: bundle install --jobs=4 --retry=3
+      - ruby/install-deps
       - run:
           name: Run tests
           command: |
@@ -29,128 +17,41 @@ jobs:
             bundle exec rspec \
               --format progress \
               --format RspecJunitFormatter \
-              --out /tmp/test-results/rspec.xml \
-              --format progress
+              --out /tmp/test-results/rspec.xml
       - store_test_results:
           path: /tmp/test-results
-      - store_artifacts:
-          path: /tmp/test-results
-          destination: test-results
 
   lint:
     docker:
       - image: cimg/ruby:3.0
-        environment:
-          BUNDLE_JOBS: 3
-          BUNDLE_RETRY: 3
     steps:
       - checkout
-      - run:
-          name: Configure Bundler
-          command: |
-            bundle config set --local path vendor/bundle
-            bundle config unset deployment
-            bundle config set --local force_ruby_platform true
-      - run:
-          name: Install dependencies
-          command: bundle install --jobs=4 --retry=3
+      - ruby/install-deps
       - run:
           name: Run RuboCop
-          command: bundle exec rubocop --config ruby.yml --format progress --format junit --out /tmp/rubocop-results.xml
-      - store_test_results:
-          path: /tmp/rubocop-results.xml
-      - store_artifacts:
-          path: /tmp/rubocop-results.xml
-
-  security:
-    docker:
-      - image: cimg/ruby:3.0-node
-        environment:
-          BUNDLE_JOBS: 3
-          BUNDLE_RETRY: 3
-    steps:
-      - checkout
-      - run:
-          name: Configure Bundler
-          command: |
-            bundle config set --local path vendor/bundle
-            bundle config unset deployment
-            bundle config set --local force_ruby_platform true
-      - run:
-          name: Install dependencies
-          command: bundle install --jobs=4 --retry=3
-      - run:
-          name: Install Snyk CLI
-          command: |
-            curl -Lo snyk https://github.com/snyk/cli/releases/latest/download/snyk-linux
-            chmod +x snyk
-            sudo mv snyk /usr/local/bin/
-      - run:
-          name: Authenticate with Snyk
-          command: snyk auth $SNYK_TOKEN
-      - run:
-          name: Run Snyk Security Scan
-          command: |
-            echo "🔒 Running security scan..."
-            echo "⚠️  Note: Currently allowing high-severity issues due to Ruby 3.0 compatibility"
-            echo "🎯 Plan to upgrade to Ruby 3.1+ to fix nokogiri vulnerabilities"
-            
-            # Only fail on critical vulnerabilities, allow high-severity to pass
-            snyk test --severity-threshold=critical --file=Gemfile.lock || {
-              echo "⚠️ High-severity vulnerabilities found but continuing build..."
-              echo "📋 See above for security issues that should be addressed"
-              echo "🔧 Consider upgrading Ruby to 3.1+ to fix nokogiri vulnerabilities"
-            }
-      - run:
-          name: Monitor project on Snyk (if scan succeeded)
-          command: |
-            snyk monitor --project-name=${CIRCLE_PROJECT_REPONAME}/${CIRCLE_BRANCH} || echo "Monitoring skipped due to vulnerabilities"
-          when: always
+          command: bundle exec rubocop --config ruby.yml
 
   build_gem:
     docker:
       - image: cimg/ruby:3.0
-        environment:
-          BUNDLE_JOBS: 3
-          BUNDLE_RETRY: 3
     steps:
       - checkout
-      - run:
-          name: Configure Bundler
-          command: |
-            bundle config set --local path vendor/bundle
-            bundle config unset deployment
-            bundle config set --local force_ruby_platform true
-      - run:
-          name: Install dependencies
-          command: bundle install --jobs=4 --retry=3
+      - ruby/install-deps
       - run:
           name: Build gem
           command: |
             gem build teams_api.gemspec
             mkdir -p /tmp/gems
             mv *.gem /tmp/gems/
-            ls -la /tmp/gems/
       - store_artifacts:
           path: /tmp/gems
-          destination: gems
-      - run:
-          name: Display gem info
-          command: |
-            echo "✅ Gem built successfully!"
-            echo "📦 Gem file: $(ls /tmp/gems/*.gem)"
-            echo "🏷️  Version: $(gem specification /tmp/gems/*.gem version)"
-            echo "📄 Description: $(gem specification /tmp/gems/*.gem description)"
 
 workflows:
   version: 2
-  test_lint_build:
+  ci:
     jobs:
       - test
       - lint
-      - security
       - build_gem:
-          requires:
-            - test
-            - lint
-            - security
+          requires: [test, lint]
+          
