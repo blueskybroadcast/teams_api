@@ -4,6 +4,8 @@ git_source(:github) { |repo| "https://github.com/#{repo}.git" }
 # Specify your gem's dependencies in teams_api.gemspec.
 gemspec
 
+gem 'rspec_junit_formatter', '~> 0.6'
+
 group :development do
   gem 'sqlite3'
 end

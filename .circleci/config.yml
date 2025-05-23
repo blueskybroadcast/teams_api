@@ -1,0 +1,134 @@
+version: 2.1
+
+orbs:
+  ruby: circleci/ruby@2.1.0
+  snyk: snyk/snyk@1.7.4
+
+jobs:
+  test:
+    docker:
+      - image: cimg/ruby:3.0-node
+        environment:
+          BUNDLE_JOBS: 3
+          BUNDLE_RETRY: 3
+          BUNDLE_PATH: vendor/bundle
+          RAILS_ENV: test
+    steps:
+      - checkout
+      - ruby/install-deps
+      - run:
+          name: Run tests
+          command: |
+            mkdir /tmp/test-results
+            bundle exec rspec \
+              --format progress \
+              --format RspecJunitFormatter \
+              --out /tmp/test-results/rspec.xml \
+              --format progress
+      - store_test_results:
+          path: /tmp/test-results
+      - store_artifacts:
+          path: /tmp/test-results
+          destination: test-results
+
+  lint:
+    docker:
+      - image: cimg/ruby:3.0
+        environment:
+          BUNDLE_JOBS: 3
+          BUNDLE_RETRY: 3
+          BUNDLE_PATH: vendor/bundle
+    steps:
+      - checkout
+      - ruby/install-deps
+      - run:
+          name: Run RuboCop
+          command: bundle exec rubocop --config ruby.yml --format progress --format junit --out /tmp/rubocop-results.xml
+      - store_test_results:
+          path: /tmp/rubocop-results.xml
+      - store_artifacts:
+          path: /tmp/rubocop-results.xml
+
+  security:
+    docker:
+      - image: cimg/ruby:3.0
+        environment:
+          BUNDLE_JOBS: 3
+          BUNDLE_RETRY: 3
+          BUNDLE_PATH: vendor/bundle
+    steps:
+      - checkout
+      - ruby/install-deps
+      - snyk/scan:
+          severity-threshold: high
+          fail-on-issues: true
+          monitor-on-build: true
+          project: ${CIRCLE_PROJECT_REPONAME}/${CIRCLE_BRANCH}
+          additional-arguments: --all-projects
+
+  build_gem:
+    docker:
+      - image: cimg/ruby:3.0
+        environment:
+          BUNDLE_JOBS: 3
+          BUNDLE_RETRY: 3
+          BUNDLE_PATH: vendor/bundle
+    steps:
+      - checkout
+      - ruby/install-deps
+      - run:
+          name: Build gem
+          command: |
+            gem build teams_api.gemspec
+            mkdir -p /tmp/gems
+            mv *.gem /tmp/gems/
+      - store_artifacts:
+          path: /tmp/gems
+          destination: gems
+      - persist_to_workspace:
+          root: /tmp/gems
+          paths:
+            - "*.gem"
+
+  publish_gem:
+    docker:
+      - image: cimg/ruby:3.0
+    steps:
+      - checkout
+      - attach_workspace:
+          at: /tmp/gems
+      - run:
+          name: Setup RubyGems credentials
+          command: |
+            mkdir -p ~/.gem
+            echo -e "---\r\n:rubygems_api_key: $RUBYGEMS_API_KEY" > ~/.gem/credentials
+            chmod 0600 ~/.gem/credentials
+      - run:
+          name: Publish to RubyGems
+          command: |
+            cd /tmp/gems
+            gem push *.gem
+
+workflows:
+  version: 2
+  test_lint_build:
+    jobs:
+      - test
+      - lint
+      - security
+      - build_gem:
+          requires:
+            - test
+            - lint
+            - security
+          filters:
+            branches:
+              only: main
+      - publish_gem:
+          requires:
+            - build_gem
+          filters:
+            branches:
+              ignore: /.*/
+            tags:
+              only: /^v.*/
