@@ -6,7 +6,7 @@ orbs:
 defaults: &defaults
   working_directory: ~/teams_api
   docker:
-    - image: cimg/ruby:3.0.7-node
+    - image: jmilam/circleci-ruby-headless-3.0.7:ruby-3.0.7
       environment:
         BUNDLE_JOBS: 3
         BUNDLE_RETRY: 3
