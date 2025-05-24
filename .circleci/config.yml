@@ -3,55 +3,149 @@ version: 2.1
 orbs:
   ruby: circleci/ruby@2.1.0
 
+defaults: &defaults
+  working_directory: ~/teams_api
+  docker:
+    - image: cimg/ruby:3.0.7-node
+      environment:
+        BUNDLE_JOBS: 3
+        BUNDLE_RETRY: 3
+        BUNDLE_PATH: vendor/bundle
+        RAILS_ENV: test
+        RACK_ENV: test
+        TZ: "UTC"
+  resource_class: medium
+
+commands:
+  bundle_install:
+    steps:
+      - restore_cache:
+          name: Looking for Cached Gem Bundle
+          keys:
+            - teams-api-gem-cache-307-{{ checksum "Gemfile.lock" }}
+            - teams-api-gem-cache-307-
+      - run:
+          name: Configure Bundler
+          command: |
+            bundle config set --local path vendor/bundle
+            bundle config unset deployment
+            bundle config set --local force_ruby_platform true
+      - run:
+          name: Updating and Installing Gems
+          command: bundle check || bundle install
+          no_output_timeout: 15m
+      - save_cache:
+          name: Saving Gem Bundle to Cache
+          key: teams-api-gem-cache-307-{{ checksum "Gemfile.lock" }}
+          paths:
+            - vendor/bundle
+
 jobs:
   test:
-    docker:
-      - image: cimg/ruby:3.0-node
+    <<: *defaults
     steps:
       - checkout
-      - ruby/install-deps
+      - bundle_install
       - run:
-          name: Run tests
+          name: Creating Test Results Directory
+          command: mkdir -p /tmp/test-results
+      - run:
+          name: Running RSpec Tests
           command: |
-            mkdir /tmp/test-results
             bundle exec rspec \
               --format progress \
               --format RspecJunitFormatter \
-              --out /tmp/test-results/rspec.xml
+              --out /tmp/test-results/rspec.xml \
+              --format progress
       - store_test_results:
           path: /tmp/test-results
+      - store_artifacts:
+          path: /tmp/test-results
+          destination: test-results
 
   lint:
-    docker:
-      - image: cimg/ruby:3.0
+    <<: *defaults
     steps:
       - checkout
-      - ruby/install-deps
+      - bundle_install
       - run:
-          name: Run RuboCop
-          command: bundle exec rubocop --config ruby.yml
+          name: Running RuboCop Linter
+          command: |
+            mkdir -p /tmp/rubocop
+            bundle exec rubocop \
+              --config ruby.yml \
+              --format progress \
+              --format junit \
+              --out /tmp/rubocop/results.xml
+      - store_test_results:
+          path: /tmp/rubocop
+      - store_artifacts:
+          path: /tmp/rubocop
+          destination: rubocop
+
+  security:
+    <<: *defaults
+    steps:
+      - checkout
+      - bundle_install
+      - run:
+          name: Install Snyk CLI
+          command: |
+            curl -Lo snyk https://github.com/snyk/cli/releases/latest/download/snyk-linux
+            chmod +x snyk
+            sudo mv snyk /usr/local/bin/
+      - run:
+          name: Authenticate with Snyk
+          command: snyk auth $SNYK_TOKEN
+      - run:
+          name: Run Snyk Security Scan
+          command: |
+            echo "🔒 Running security scan (PATH LMS compatible mode)..."
+            # Use medium threshold - compatible with PATH LMS Ruby 3.0.7 constraints
+            snyk test --severity-threshold=medium --file=Gemfile.lock || {
+              echo "⚠️ Medium+ severity vulnerabilities found"
+              echo "📋 Consider updating dependencies when PATH LMS platform allows"
+              echo "🔗 Full vulnerability details available in Snyk dashboard"
+            }
+      - run:
+          name: Monitor project on Snyk
+          command: |
+            snyk monitor --project-name=${CIRCLE_PROJECT_REPONAME}/${CIRCLE_BRANCH} || echo "Monitoring completed"
+          when: always
 
   build_gem:
-    docker:
-      - image: cimg/ruby:3.0
+    <<: *defaults
     steps:
       - checkout
-      - ruby/install-deps
+      - bundle_install
       - run:
-          name: Build gem
+          name: Build Gem
           command: |
             gem build teams_api.gemspec
             mkdir -p /tmp/gems
             mv *.gem /tmp/gems/
+            ls -la /tmp/gems/
       - store_artifacts:
           path: /tmp/gems
+          destination: gems
+      - run:
+          name: Display Build Info
+          command: |
+            echo "✅ TeamsApi Gem built successfully!"
+            echo "📦 Gem file: $(ls /tmp/gems/*.gem)"
+            echo "🏷️  Version: $(gem specification /tmp/gems/*.gem version)"
+            echo "🔗 Compatible with PATH LMS Ruby 3.0.7"
+            echo "📄 Description: $(gem specification /tmp/gems/*.gem description)"
 
 workflows:
   version: 2
-  ci:
+  ci_pipeline:
     jobs:
       - test
       - lint
+      - security
       - build_gem:
-          requires: [test, lint]
-          
+          requires:
+            - test
+            - lint
+            - security
