@@ -9,15 +9,13 @@ group :development do
 end
 
 group :development, :test do
-
-  gem 'nokogiri', '~> 1.16.7' 
+  gem 'nokogiri', '~> 1.15.6' 
   gem 'rspec_junit_formatter', '~> 0.6'
   gem 'rubocop', require: false
   gem 'rubocop-junit-formatter', require: false
   gem 'rubocop-performance', require: false
   gem 'rubocop-rails', require: false
   gem 'rubocop-rspec'
-  
 end
 
 # To use a debugger
