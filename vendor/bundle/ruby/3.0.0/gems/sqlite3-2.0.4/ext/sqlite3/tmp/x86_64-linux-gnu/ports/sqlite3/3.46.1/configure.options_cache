@@ -1,1 +1,0 @@
-["--host=x86_64-linux-gnu", "--enable-static", "--disable-shared", "--enable-shared=no", "--enable-static=yes", "--enable-fts5", "CC=gcc", "CFLAGS=-fPIC -O2 -fvisibility=hidden -DSQLITE_DEFAULT_WAL_SYNCHRONOUS=1", "--prefix=/home/runner/work/teams_api/teams_api/vendor/bundle/ruby/3.0.0/gems/sqlite3-2.0.4/ports/x86_64-linux-gnu/sqlite3/3.46.1"]
