@@ -10,7 +10,7 @@ end
 
 group :development, :test do
 
-  gem 'nokogiri', '~> 1.16.0' 
+  gem 'nokogiri', '~> 1.16.7' 
   gem 'rspec_junit_formatter', '~> 0.6'
   gem 'rubocop', require: false
   gem 'rubocop-junit-formatter', require: false
