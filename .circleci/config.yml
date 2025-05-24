@@ -89,7 +89,7 @@ jobs:
           command: |
             mkdir -p /tmp/rubocop
             bundle exec rubocop \
-              --config ruby.yml \
+              --config config/linters/ruby.yml \
               --format progress \
               --format junit \
               --out /tmp/rubocop/results.xml
@@ -165,4 +165,3 @@ workflows:
             - test
             - lint
             - security
-            
