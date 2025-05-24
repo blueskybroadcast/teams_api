@@ -9,7 +9,8 @@ group :development do
 end
 
 group :development, :test do
-  gem 'nokogiri', '~> 1.15.6'
+  # Use secure version (>= 1.16.5) to avoid CVE-2024-34459
+  gem 'nokogiri', '~> 1.16.7'
   gem 'rspec_junit_formatter', '~> 0.6'
   gem 'rubocop', require: false
   gem 'rubocop-junit-formatter', require: false
