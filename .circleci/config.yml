@@ -14,7 +14,7 @@ defaults: &defaults
         RAILS_ENV: test
         RACK_ENV: test
         TZ: "UTC"
-  resource_class: medium
+  resource_class: blueskybroadcast/small
 
 commands:
   bundle_install:
