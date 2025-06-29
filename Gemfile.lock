@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    teams_api (0.1.4)
+    teams_api (0.1.7)
       active_model_serializers (~> 0.10.13)
       rails (~> 6.1.7, >= 6.1.7.10)
 

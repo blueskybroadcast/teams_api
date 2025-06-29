@@ -7,7 +7,7 @@ module TeamsApi
                :sso_synced, :auto_reg_skipped_by,
                :created_at, :updated_at
 
-    belongs_to :member, serializer: UserSerializer, if: -> { object.user_id.present? }
+    belongs_to :member, if: -> { object.user_id.present? }
     belongs_to :access_code, if: -> { object.access_code_id.present? }
 
     def invitation_status
